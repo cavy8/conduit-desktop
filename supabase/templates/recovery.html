@@ -1,0 +1,17 @@
+<h2>Reset your Conduit password (local dev)</h2>
+
+<p>Click the link below to choose a new password.</p>
+
+<p>
+  <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=recovery&amp;next=/auth/update-password">
+    Reset password
+  </a>
+</p>
+
+<p>Or paste this URL into your browser:</p>
+
+<p>{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=recovery&amp;next=/auth/update-password</p>
+
+<p style="color:#888;font-size:12px;">
+  Local dev recovery email. Token hash: <code>{{ .TokenHash }}</code> &middot; Site URL: <code>{{ .SiteURL }}</code>
+</p>
