@@ -204,4 +204,18 @@ export const MIGRATIONS: Migration[] = [
       db.exec('CREATE INDEX idx_password_history_entry ON password_history(entry_id, changed_at DESC)');
     },
   },
+  {
+    version: 10,
+    description: 'Add parent_entry_id to entries (allow nesting any entry under another entry)',
+    up: (db) => {
+      const cols = db.pragma('table_info(entries)') as Array<{ name: string }>;
+      const hasColumn = cols.some((c) => c.name === 'parent_entry_id');
+      if (!hasColumn) {
+        db.exec(
+          "ALTER TABLE entries ADD COLUMN parent_entry_id TEXT REFERENCES entries(id) ON DELETE SET NULL"
+        );
+      }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_entries_parent_entry ON entries(parent_entry_id)');
+    },
+  },
 ];

@@ -144,6 +144,7 @@ export interface EntryMeta {
   name: string;
   entry_type: EntryType;
   folder_id: string | null;
+  parent_entry_id: string | null;
   sort_order: number;
   host: string | null;
   port: number | null;

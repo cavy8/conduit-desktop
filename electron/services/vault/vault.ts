@@ -23,6 +23,7 @@ export interface EntryMeta {
   name: string;
   entry_type: EntryType;
   folder_id: string | null;
+  parent_entry_id: string | null;
   sort_order: number;
   host: string | null;
   port: number | null;
@@ -71,6 +72,7 @@ export interface CreateEntryInput {
   name: string;
   entry_type: EntryType;
   folder_id?: string | null;
+  parent_entry_id?: string | null;
   host?: string | null;
   port?: number | null;
   credential_id?: string | null;
@@ -91,6 +93,7 @@ export interface UpdateEntryInput {
   name?: string;
   entry_type?: EntryType;
   folder_id?: string | null;
+  parent_entry_id?: string | null;
   sort_order?: number;
   host?: string | null;
   port?: number | null;
@@ -391,11 +394,17 @@ export class ConduitVault {
 
     const credentialType = input.credential_type ?? null;
 
+    // Mutual exclusion: an entry has either a folder parent or an entry parent, not both.
+    const requestedParentEntryId = input.parent_entry_id ?? null;
+    const folderId = requestedParentEntryId ? null : (input.folder_id ?? null);
+    const parentEntryId = requestedParentEntryId;
+
     db.insertEntry({
       id,
       name: input.name,
       entry_type: input.entry_type,
-      folder_id: input.folder_id ?? null,
+      folder_id: folderId,
+      parent_entry_id: parentEntryId,
       sort_order: 0,
       host: input.host ?? null,
       port: input.port ?? null,
@@ -422,7 +431,8 @@ export class ConduitVault {
       id,
       name: input.name,
       entry_type: input.entry_type,
-      folder_id: input.folder_id ?? null,
+      folder_id: folderId,
+      parent_entry_id: parentEntryId,
       sort_order: 0,
       host: input.host ?? null,
       port: input.port ?? null,
@@ -480,7 +490,20 @@ export class ConduitVault {
 
     const name = input.name ?? existing.name;
     const entryType = input.entry_type ?? existing.entry_type;
-    const folderId = input.folder_id !== undefined ? input.folder_id : existing.folder_id;
+    // Compute new container fields with mutual exclusion: setting one to a
+    // non-null value clears the other. Passing null (or omitting) only clears
+    // the field the caller named — never the other one. This matters because
+    // the entry edit dialog typically submits the full record on save, and a
+    // nested entry's folder_id is already null; we must NOT interpret that
+    // null as "also clear parent_entry_id." Explicit moves to root go through
+    // moveEntry(), which sets both fields explicitly.
+    let folderId = input.folder_id !== undefined ? input.folder_id : existing.folder_id;
+    let parentEntryId = input.parent_entry_id !== undefined ? input.parent_entry_id : existing.parent_entry_id;
+    if (input.parent_entry_id !== undefined && input.parent_entry_id !== null) {
+      folderId = null;
+    } else if (input.folder_id !== undefined && input.folder_id !== null) {
+      parentEntryId = null;
+    }
     const sortOrder = input.sort_order ?? existing.sort_order;
     const host = input.host !== undefined ? input.host : existing.host;
     const port = input.port !== undefined ? input.port : existing.port;
@@ -515,6 +538,7 @@ export class ConduitVault {
       name,
       entry_type: entryType,
       folder_id: folderId,
+      parent_entry_id: parentEntryId,
       sort_order: sortOrder,
       host,
       port,
@@ -541,6 +565,7 @@ export class ConduitVault {
       name,
       entry_type: entryType as EntryType,
       folder_id: folderId,
+      parent_entry_id: parentEntryId,
       sort_order: sortOrder,
       host,
       port,
@@ -559,20 +584,78 @@ export class ConduitVault {
     };
   }
 
-  /** Delete an entry by ID. */
+  /**
+   * Delete an entry by ID.
+   * Children nested under this entry (via parent_entry_id) are promoted to this
+   * entry's own container — its parent_entry_id if set, else its folder_id, else root.
+   */
   deleteEntry(id: string): void {
     const { db } = this.requireUnlocked();
     const existing = db.getEntry(id);
-    const affected = db.deleteEntry(id);
-    if (affected === 0) {
+    if (!existing) {
       throw new Error(`Entry not found: ${id}`);
     }
-    this.notifyMutation({ type: 'entry', action: 'delete', id, name: existing?.name });
+
+    db.runInTransaction(() => {
+      // Find direct children nested under this entry.
+      const allEntries = db.listEntries();
+      const directChildren = allEntries.filter((row) => row.parent_entry_id === id);
+
+      if (directChildren.length > 0) {
+        const promotedFolderId = existing.parent_entry_id ? null : existing.folder_id;
+        const promotedParentEntryId = existing.parent_entry_id;
+        const now = new Date().toISOString();
+
+        for (const child of directChildren) {
+          db.updateEntry({
+            ...child,
+            folder_id: promotedFolderId,
+            parent_entry_id: promotedParentEntryId,
+            updated_at: now,
+          });
+        }
+      }
+
+      db.deleteEntry(id);
+    });
+
+    this.notifyMutation({ type: 'entry', action: 'delete', id, name: existing.name });
   }
 
-  /** Move an entry to a different folder. */
+  /** Move an entry to a different folder (clears any entry parent). */
   moveEntry(id: string, folderId: string | null): EntryMeta {
-    return this.updateEntry(id, { folder_id: folderId });
+    return this.updateEntry(id, { folder_id: folderId, parent_entry_id: null });
+  }
+
+  /** Move an entry to be nested under another entry (clears any folder parent). */
+  moveEntryUnderEntry(id: string, parentEntryId: string): EntryMeta {
+    if (id === parentEntryId) {
+      throw new Error('Cannot nest an entry under itself');
+    }
+    if (this.wouldCreateEntryCycle(id, parentEntryId)) {
+      throw new Error('Move would create a circular reference');
+    }
+    return this.updateEntry(id, { parent_entry_id: parentEntryId, folder_id: null });
+  }
+
+  /**
+   * Check whether nesting `movingEntryId` under `targetEntryId` would create a cycle.
+   * Walks the target's parent_entry_id chain to see if it passes through movingEntryId.
+   */
+  wouldCreateEntryCycle(movingEntryId: string, targetEntryId: string): boolean {
+    const { db } = this.requireUnlocked();
+    if (movingEntryId === targetEntryId) return true;
+
+    const visited = new Set<string>();
+    let currentId: string | null = targetEntryId;
+    while (currentId) {
+      if (visited.has(currentId)) return true;
+      visited.add(currentId);
+      if (currentId === movingEntryId) return true;
+      const row = db.getEntry(currentId);
+      currentId = row?.parent_entry_id ?? null;
+    }
+    return false;
   }
 
   /** Duplicate an entry, including encrypted secrets. Returns the new entry's metadata. */
@@ -613,6 +696,7 @@ export class ConduitVault {
       name: newName,
       entry_type: row.entry_type,
       folder_id: row.folder_id,
+      parent_entry_id: row.parent_entry_id,
       sort_order: 0,
       host: row.host,
       port: row.port,
@@ -644,7 +728,9 @@ export class ConduitVault {
    * Resolution order:
    * 1. Explicit credential_id -> use that credential entry
    * 2. Entry's own username/password -> use inline creds
-   * 3. Walk UP folder tree -> find credential-type entries
+   * 3. Walk UP the unified hierarchy (parent_entry_id chain, then folder chain).
+   *    A credential-type sibling under any ancestor entry, or any credential in
+   *    an ancestor folder, is inherited.
    * 4. Return null if nothing found
    */
   resolveCredential(entryId: string): ResolvedCredential | null {
@@ -691,7 +777,78 @@ export class ConduitVault {
       };
     }
 
-    // 3. Walk up folder tree
+    // 3a. Walk up the entry parent chain. At each ancestor entry, look for a
+    //     credential-type sibling nested directly under it.
+    const visitedEntries = new Set<string>([entry.id]);
+    let currentEntryId: string | null = entry.parent_entry_id;
+    let allEntries: EntryRow[] | null = null;
+    const getAllEntries = (): EntryRow[] => {
+      if (!allEntries) allEntries = db.listEntries();
+      return allEntries;
+    };
+    while (currentEntryId) {
+      if (visitedEntries.has(currentEntryId)) break;
+      visitedEntries.add(currentEntryId);
+
+      const credSibling = getAllEntries().find(
+        (e) => e.parent_entry_id === currentEntryId && e.entry_type === 'credential'
+      );
+      if (credSibling) {
+        const full = this.rowToEntryFull(credSibling, key);
+        return {
+          source: 'inherited',
+          source_entry_id: credSibling.id,
+          source_folder_id: null,
+          username: full.username,
+          password: full.password,
+          domain: full.domain,
+          private_key: full.private_key,
+        };
+      }
+
+      const ancestor = db.getEntry(currentEntryId);
+      if (!ancestor) break;
+      // If the ancestor itself is a credential, use it.
+      if (ancestor.entry_type === 'credential') {
+        const full = this.rowToEntryFull(ancestor, key);
+        return {
+          source: 'inherited',
+          source_entry_id: ancestor.id,
+          source_folder_id: null,
+          username: full.username,
+          password: full.password,
+          domain: full.domain,
+          private_key: full.private_key,
+        };
+      }
+      // If the ancestor lives in a folder, hand off to folder walk from there.
+      if (ancestor.folder_id) {
+        currentEntryId = null;
+        let currentFolderId: string | null = ancestor.folder_id;
+        while (currentFolderId) {
+          const creds = db.findCredentialsInFolder(currentFolderId);
+          if (creds.length > 0) {
+            const credRow = creds[0];
+            const full = this.rowToEntryFull(credRow, key);
+            return {
+              source: 'inherited',
+              source_entry_id: credRow.id,
+              source_folder_id: currentFolderId,
+              username: full.username,
+              password: full.password,
+              domain: full.domain,
+              private_key: full.private_key,
+            };
+          }
+          const folder = db.getFolder(currentFolderId);
+          currentFolderId = folder?.parent_id ?? null;
+        }
+        return null;
+      }
+      currentEntryId = ancestor.parent_entry_id ?? null;
+    }
+
+    // 3b. Walk up the folder tree from the entry's own folder.
     let currentFolderId = entry.folder_id;
     while (currentFolderId) {
       const creds = db.findCredentialsInFolder(currentFolderId);
@@ -708,7 +865,6 @@ export class ConduitVault {
           private_key: full.private_key,
         };
       }
-      // Move up to parent folder
       const folder = db.getFolder(currentFolderId);
       currentFolderId = folder?.parent_id ?? null;
     }
@@ -915,18 +1071,6 @@ export class ConduitVault {
   setCloudSyncEnabled(enabled: boolean): void {
     const { db } = this.requireUnlocked();
     db.setMeta('cloud_sync_enabled', enabled ? 'true' : 'false');
-  }
-
-  /** Check if chat cloud sync is enabled in vault_meta. */
-  isChatCloudSyncEnabled(): boolean {
-    const { db } = this.requireUnlocked();
-    return db.getMeta('chat_cloud_sync_enabled') === 'true';
-  }
-
-  /** Set chat cloud sync enabled/disabled in vault_meta. */
-  setChatCloudSyncEnabled(enabled: boolean): void {
-    const { db } = this.requireUnlocked();
-    db.setMeta('chat_cloud_sync_enabled', enabled ? 'true' : 'false');
   }
 
   // -- VEK-based operations (team vaults) --
@@ -1212,6 +1356,7 @@ export class ConduitVault {
       name: row.name,
       entry_type: row.entry_type as EntryType,
       folder_id: row.folder_id,
+      parent_entry_id: row.parent_entry_id ?? null,
       sort_order: row.sort_order,
       host: row.host,
       port: row.port,

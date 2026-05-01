@@ -27,6 +27,7 @@ export interface EntryRow {
   name: string;
   entry_type: string;
   folder_id: string | null;
+  parent_entry_id: string | null;
   sort_order: number;
   host: string | null;
   port: number | null;
@@ -66,17 +67,25 @@ export class ConduitDatabase {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
     this.db.pragma('foreign_keys = ON');
-    this.initSchema();
-    this.runMigrations();
-  }
 
-  private initSchema(): void {
-    this.db.exec(CREATE_SCHEMA);
+    // Bootstrap vault_meta first so we can read schema_version before doing
+    // anything else. CREATE_SCHEMA contains indexes on columns that may only
+    // exist after migrations run, so the order matters: existing DBs must
+    // migrate before CREATE_SCHEMA's index creation re-runs.
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS vault_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+    );
 
-    // Set schema version if not present
-    const ver = this.getMeta('schema_version');
-    if (!ver) {
+    const existingVersion = this.getMeta('schema_version');
+    if (!existingVersion) {
+      // Fresh DB — apply the full current schema in one shot and stamp version.
+      this.db.exec(CREATE_SCHEMA);
       this.setMeta('schema_version', String(SCHEMA_VERSION));
+    } else {
+      // Existing DB — run pending migrations first so any new columns exist
+      // before CREATE_SCHEMA's idempotent CREATE INDEX statements run.
+      this.runMigrations();
+      this.db.exec(CREATE_SCHEMA);
     }
   }
 
@@ -185,13 +194,21 @@ export class ConduitDatabase {
       SELECT id FROM descendants
     `);
 
+    // Walk both folder hierarchy AND entry hierarchy: an entry rooted in this folder
+    // (or nested under another entry that's rooted in this folder) is a descendant.
     const deleteEntriesInFolders = this.db.prepare(`
-      WITH RECURSIVE descendants(id) AS (
-        SELECT id FROM folders WHERE id = ?
-        UNION ALL
-        SELECT f.id FROM folders f JOIN descendants d ON f.parent_id = d.id
-      )
-      DELETE FROM entries WHERE folder_id IN (SELECT id FROM descendants)
+      WITH RECURSIVE
+        folder_descendants(id) AS (
+          SELECT id FROM folders WHERE id = ?
+          UNION ALL
+          SELECT f.id FROM folders f JOIN folder_descendants d ON f.parent_id = d.id
+        ),
+        entry_descendants(id) AS (
+          SELECT id FROM entries WHERE folder_id IN (SELECT id FROM folder_descendants)
+          UNION ALL
+          SELECT e.id FROM entries e JOIN entry_descendants ed ON e.parent_entry_id = ed.id
+        )
+      DELETE FROM entries WHERE id IN (SELECT id FROM entry_descendants)
     `);
 
     const deleteFoldersRecursive = this.db.prepare(`
@@ -228,6 +245,7 @@ export class ConduitDatabase {
     name: string;
     entry_type: string;
     folder_id: string | null;
+    parent_entry_id?: string | null;
     sort_order: number;
     host: string | null;
     port: number | null;
@@ -249,14 +267,19 @@ export class ConduitDatabase {
   }): void {
     this.db
       .prepare(
-        `INSERT INTO entries (id, name, entry_type, folder_id, sort_order, host, port,
+        `INSERT INTO entries (id, name, entry_type, folder_id, parent_entry_id, sort_order, host, port,
          credential_id, username, password_encrypted, domain, private_key_encrypted,
          totp_secret_encrypted, icon, color, config, tags, is_favorite, notes, credential_type, created_at, updated_at)
-         VALUES (@id, @name, @entry_type, @folder_id, @sort_order, @host, @port,
+         VALUES (@id, @name, @entry_type, @folder_id, @parent_entry_id, @sort_order, @host, @port,
          @credential_id, @username, @password_encrypted, @domain, @private_key_encrypted,
          @totp_secret_encrypted, @icon, @color, @config, @tags, @is_favorite, @notes, @credential_type, @created_at, @updated_at)`
       )
-      .run({ ...row, credential_type: row.credential_type ?? null, totp_secret_encrypted: row.totp_secret_encrypted ?? null });
+      .run({
+        ...row,
+        parent_entry_id: row.parent_entry_id ?? null,
+        credential_type: row.credential_type ?? null,
+        totp_secret_encrypted: row.totp_secret_encrypted ?? null,
+      });
   }
 
   getEntry(id: string): EntryRow | undefined {
@@ -291,6 +314,7 @@ export class ConduitDatabase {
     name: string;
     entry_type: string;
     folder_id: string | null;
+    parent_entry_id?: string | null;
     sort_order: number;
     host: string | null;
     port: number | null;
@@ -312,6 +336,7 @@ export class ConduitDatabase {
     const result = this.db
       .prepare(
         `UPDATE entries SET name = @name, entry_type = @entry_type, folder_id = @folder_id,
+         parent_entry_id = @parent_entry_id,
          sort_order = @sort_order, host = @host, port = @port, credential_id = @credential_id,
          username = @username, password_encrypted = @password_encrypted, domain = @domain,
          private_key_encrypted = @private_key_encrypted, totp_secret_encrypted = @totp_secret_encrypted,
@@ -320,7 +345,12 @@ export class ConduitDatabase {
          updated_at = @updated_at
          WHERE id = @id`
       )
-      .run({ ...row, credential_type: row.credential_type ?? null, totp_secret_encrypted: row.totp_secret_encrypted ?? null });
+      .run({
+        ...row,
+        parent_entry_id: row.parent_entry_id ?? null,
+        credential_type: row.credential_type ?? null,
+        totp_secret_encrypted: row.totp_secret_encrypted ?? null,
+      });
     return result.changes;
   }
 

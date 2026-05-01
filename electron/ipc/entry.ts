@@ -35,6 +35,7 @@ export function registerEntryHandlers(): void {
     name: string;
     entry_type: string;
     folder_id?: string | null;
+    parent_entry_id?: string | null;
     host?: string | null;
     port?: number | null;
     credential_id?: string | null;
@@ -72,6 +73,7 @@ export function registerEntryHandlers(): void {
       name: args.name,
       entry_type: args.entry_type as 'ssh' | 'rdp' | 'vnc' | 'web' | 'credential' | 'command',
       folder_id: args.folder_id,
+      parent_entry_id: args.parent_entry_id,
       host: args.host,
       port: args.port,
       credential_id: args.credential_id,
@@ -137,6 +139,7 @@ export function registerEntryHandlers(): void {
     name?: string;
     entry_type?: string;
     folder_id?: string | null;
+    parent_entry_id?: string | null;
     sort_order?: number;
     host?: string | null;
     port?: number | null;
@@ -223,22 +226,41 @@ export function registerEntryHandlers(): void {
   });
 
   // ── entry_move ────────────────────────────────────────────────
-  ipcMain.handle('entry_move', async (_e, args: { id: string; folder_id: string | null }) => {
-    let meta: { name?: string; folder_id?: string | null } = {};
+  // Accepts either { folder_id } (move into a folder / root) or
+  // { parent_entry_id } (nest under another entry). Both undefined is a no-op.
+  ipcMain.handle('entry_move', async (
+    _e,
+    args: { id: string; folder_id?: string | null; parent_entry_id?: string | null },
+  ) => {
+    let meta: { name?: string; folder_id?: string | null; parent_entry_id?: string | null } = {};
     try {
       const m = state.getActiveVault().getEntryMeta(args.id);
-      if (m) meta = { name: m.name, folder_id: m.folder_id };
+      if (m) meta = { name: m.name, folder_id: m.folder_id, parent_entry_id: m.parent_entry_id };
     } catch {}
 
-    const result = state.getActiveVault().moveEntry(args.id, args.folder_id);
+    const vault = state.getActiveVault();
+    let result;
+    const changedFields: string[] = [];
+
+    if (args.parent_entry_id !== undefined && args.parent_entry_id !== null) {
+      result = vault.moveEntryUnderEntry(args.id, args.parent_entry_id);
+      changedFields.push('parent_entry_id');
+    } else {
+      // folder_id may be string | null (root) | undefined (no change)
+      const folderId = args.folder_id ?? null;
+      result = vault.moveEntry(args.id, folderId);
+      changedFields.push('folder_id');
+    }
 
     logAudit(state, {
       action: 'entry_update', targetType: 'entry',
       targetId: args.id, targetName: meta.name,
       details: {
-        changed_fields: ['folder_id'],
+        changed_fields: changedFields,
         previous_folder_id: meta.folder_id ?? null,
-        new_folder_id: args.folder_id,
+        previous_parent_entry_id: meta.parent_entry_id ?? null,
+        new_folder_id: result.folder_id,
+        new_parent_entry_id: result.parent_entry_id,
       },
     });
 

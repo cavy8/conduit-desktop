@@ -104,6 +104,7 @@ interface EntryState {
     name: string;
     entry_type: EntryType;
     folder_id?: string | null;
+    parent_entry_id?: string | null;
     host?: string | null;
     port?: number | null;
     credential_id?: string | null;
@@ -124,6 +125,8 @@ interface EntryState {
   deleteEntry: (id: string) => Promise<void>;
   duplicateEntry: (id: string) => Promise<EntryMeta | null>;
   moveEntry: (id: string, folderId: string | null) => Promise<void>;
+  /** Nest entry `id` under `parentEntryId`. Clears any folder parent. */
+  nestEntryUnder: (id: string, parentEntryId: string) => Promise<void>;
   resolveCredential: (id: string) => Promise<ResolvedCredential | null>;
 
   createFolder: (name: string, parentId?: string | null, icon?: string | null, color?: string | null) => Promise<FolderData | null>;
@@ -134,7 +137,15 @@ interface EntryState {
   setSelectedEntry: (id: string | null) => void;
   toggleSelectedEntry: (id: string) => void;
   clearSelection: () => void;
-  moveEntries: (ids: string[], folderId: string | null) => Promise<{ moved: number; failed: number }>;
+  /**
+   * Bulk-move entries. Pass either `folder_id` (move into a folder, or null for root)
+   * or `parent_entry_id` (nest under another entry). Setting parent_entry_id clears
+   * folder_id and vice versa.
+   */
+  moveEntries: (
+    ids: string[],
+    target: { folder_id?: string | null; parent_entry_id?: string | null },
+  ) => Promise<{ moved: number; failed: number }>;
   moveFolders: (ids: string[], parentId: string | null) => Promise<{ moved: number; failed: number }>;
   openEntry: (id: string) => Promise<void>;
   openEntryWithCredential: (id: string, credentialId: string) => Promise<void>;
@@ -377,10 +388,25 @@ export const useEntryStore = create<EntryState>((set, get) => ({
     try {
       await invoke("entry_delete", { id });
       set((state) => {
+        const deleted = state.entries.find((e) => e.id === id);
         const nextIds = new Set(state.selectedEntryIds);
         nextIds.delete(id);
+
+        // Promote direct children to the deleted entry's container so the local
+        // tree mirrors the server-side reparent (vault.deleteEntry).
+        const promotedFolderId = deleted?.parent_entry_id ? null : (deleted?.folder_id ?? null);
+        const promotedParentEntryId = deleted?.parent_entry_id ?? null;
+
+        const updatedEntries = state.entries
+          .filter((e) => e.id !== id)
+          .map((e) =>
+            e.parent_entry_id === id
+              ? { ...e, folder_id: promotedFolderId, parent_entry_id: promotedParentEntryId }
+              : e,
+          );
+
         return {
-          entries: state.entries.filter((e) => e.id !== id),
+          entries: updatedEntries,
           selectedEntryIds: nextIds,
           selectedEntryId: deriveSingleId(nextIds),
         };
@@ -399,6 +425,17 @@ export const useEntryStore = create<EntryState>((set, get) => ({
       }));
     } catch (err) {
       console.error("Failed to move entry:", err);
+    }
+  },
+
+  nestEntryUnder: async (id, parentEntryId) => {
+    try {
+      const entry = await invoke<EntryMeta>("entry_move", { id, parent_entry_id: parentEntryId });
+      set((state) => ({
+        entries: state.entries.map((e) => (e.id === id ? entry : e)),
+      }));
+    } catch (err) {
+      console.error("Failed to nest entry:", err);
     }
   },
 
@@ -451,18 +488,37 @@ export const useEntryStore = create<EntryState>((set, get) => ({
         };
         collectDescendants(id);
 
-        const nextIds = new Set(state.selectedEntryIds);
-        for (const fid of descendantFolderIds) nextIds.delete(fid);
-        // Also deselect entries that were in deleted folders
+        // Collect all entry IDs that lived (directly or transitively) inside any
+        // of the deleted folders. Walks parent_entry_id chains so nested children
+        // of entries-in-deleted-folders are also pruned.
+        const removedEntryIds = new Set<string>();
         for (const entry of state.entries) {
           if (entry.folder_id && descendantFolderIds.has(entry.folder_id)) {
-            nextIds.delete(entry.id);
+            removedEntryIds.add(entry.id);
+          }
+        }
+        let added = true;
+        while (added) {
+          added = false;
+          for (const entry of state.entries) {
+            if (
+              entry.parent_entry_id &&
+              removedEntryIds.has(entry.parent_entry_id) &&
+              !removedEntryIds.has(entry.id)
+            ) {
+              removedEntryIds.add(entry.id);
+              added = true;
+            }
           }
         }
 
+        const nextIds = new Set(state.selectedEntryIds);
+        for (const fid of descendantFolderIds) nextIds.delete(fid);
+        for (const eid of removedEntryIds) nextIds.delete(eid);
+
         return {
           folders: state.folders.filter((f) => !descendantFolderIds.has(f.id)),
-          entries: state.entries.filter((e) => !e.folder_id || !descendantFolderIds.has(e.folder_id)),
+          entries: state.entries.filter((e) => !removedEntryIds.has(e.id)),
           selectedEntryIds: nextIds,
           selectedEntryId: deriveSingleId(nextIds),
         };
@@ -504,11 +560,14 @@ export const useEntryStore = create<EntryState>((set, get) => ({
     set({ selectedEntryIds: new Set<string>(), selectedEntryId: null });
   },
 
-  moveEntries: async (ids, folderId) => {
+  moveEntries: async (ids, target) => {
     let moved = 0, failed = 0;
+    const payloadBase = target.parent_entry_id !== undefined && target.parent_entry_id !== null
+      ? { parent_entry_id: target.parent_entry_id }
+      : { folder_id: target.folder_id ?? null };
     for (const id of ids) {
       try {
-        const entry = await invoke<EntryMeta>("entry_move", { id, folder_id: folderId });
+        const entry = await invoke<EntryMeta>("entry_move", { id, ...payloadBase });
         set((state) => ({
           entries: state.entries.map((e) => (e.id === id ? entry : e)),
         }));

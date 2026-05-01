@@ -5,7 +5,7 @@
  * portable SQLite file containing entries, folders, and encrypted credentials.
  */
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 export const CREATE_SCHEMA = `
   -- Metadata (encryption verification, schema version, salt)
@@ -32,6 +32,7 @@ export const CREATE_SCHEMA = `
     name TEXT NOT NULL,
     entry_type TEXT NOT NULL CHECK(entry_type IN ('ssh','rdp','vnc','web','credential','document','command')),
     folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL,
+    parent_entry_id TEXT REFERENCES entries(id) ON DELETE SET NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
     host TEXT,
     port INTEGER,
@@ -55,5 +56,6 @@ export const CREATE_SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_entries_name ON entries(name);
   CREATE INDEX IF NOT EXISTS idx_entries_type ON entries(entry_type);
   CREATE INDEX IF NOT EXISTS idx_entries_folder ON entries(folder_id);
+  CREATE INDEX IF NOT EXISTS idx_entries_parent_entry ON entries(parent_entry_id);
   CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id);
 `;

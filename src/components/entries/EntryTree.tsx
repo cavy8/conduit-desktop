@@ -14,7 +14,7 @@ import { generateTotpCode } from "../../lib/totp";
 import { openDashboardForEntry } from "../../lib/openDashboard";
 import UpgradeBanner from "../upgrade/UpgradeBanner";
 import CredentialPicker from "../vault/CredentialPicker";
-import type { EntryType, FolderData } from "../../types/entry";
+import type { EntryType, EntryMeta, FolderData } from "../../types/entry";
 import {
   ChevronDownIcon, ChevronRightIcon, LockIcon, StarFilledIcon, UsersIcon
 } from "../../lib/icons";
@@ -46,12 +46,39 @@ function saveExpandedFolders(folders: Set<string>, favoritesMode: boolean, vid: 
   invoke("ui_state_set", { key: `${base}::${vid}`, value: [...folders] }).catch(() => {});
 }
 
-/** Check if potentialAncestorId is an ancestor of targetId by walking up parent_id chain */
-function isDescendantOf(potentialAncestorId: string, targetId: string, folders: FolderData[]): boolean {
+/**
+ * Check whether dropping `movingId` onto `targetId` would create a cycle.
+ * Walks the target's parent chain (parent_entry_id for entries, parent_id for
+ * folders) looking for movingId.
+ */
+function wouldCreateCycle(
+  movingId: string,
+  targetId: string,
+  targetKind: "folder" | "entry",
+  entries: EntryMeta[],
+  folders: FolderData[],
+): boolean {
+  if (movingId === targetId) return true;
+  const visited = new Set<string>();
+
+  if (targetKind === "entry") {
+    const entryMap = new Map(entries.map((e) => [e.id, e]));
+    let current: EntryMeta | undefined = entryMap.get(targetId);
+    while (current) {
+      if (visited.has(current.id)) return true;
+      visited.add(current.id);
+      if (current.parent_entry_id === movingId) return true;
+      current = current.parent_entry_id ? entryMap.get(current.parent_entry_id) : undefined;
+    }
+    return false;
+  }
+
   const folderMap = new Map(folders.map((f) => [f.id, f]));
   let current = folderMap.get(targetId);
   while (current) {
-    if (current.parent_id === potentialAncestorId) return true;
+    if (visited.has(current.id)) return true;
+    visited.add(current.id);
+    if (current.parent_id === movingId) return true;
     current = current.parent_id ? folderMap.get(current.parent_id) : undefined;
   }
   return false;
@@ -323,8 +350,14 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
     }
   }, [entries, updateEntry]);
 
-  /** Handle drop of items onto a target folder (or root when targetFolderId is null) */
-  const handleDrop = useCallback(async (e: React.DragEvent, targetFolderId: string | null) => {
+  /**
+   * Handle drop of items onto a target node.
+   * - targetId === null  → drop on the root zone
+   * - target is a folder → set folder_id on dropped entries; reparent dropped folders
+   * - target is an entry → set parent_entry_id on dropped entries; folders cannot
+   *   be nested under entries (those drops are skipped)
+   */
+  const handleDrop = useCallback(async (e: React.DragEvent, targetId: string | null) => {
     e.preventDefault();
     setDragOverFolderId(null);
     setDragOverRoot(false);
@@ -333,18 +366,45 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
     if (!data) return;
 
     const items = JSON.parse(data) as Array<{ id: string; kind: string }>;
+
+    const targetIsEntry = targetId ? entries.some((en) => en.id === targetId) : false;
+    const targetIsFolder = targetId ? folders.some((f) => f.id === targetId) : false;
+    const targetKind: "folder" | "entry" | "root" = targetId === null
+      ? "root"
+      : targetIsEntry
+        ? "entry"
+        : targetIsFolder
+          ? "folder"
+          : "root";
+
     const entryIdsToMove: string[] = [];
     const folderIdsToMove: string[] = [];
     let skipped = 0;
+    let folderOnEntryRejected = 0;
 
     for (const item of items) {
       // Skip self-drop
-      if (item.id === targetFolderId) { skipped++; continue; }
+      if (item.id === targetId) { skipped++; continue; }
 
-      // Skip circular references for folders
-      if (item.kind === "folder" && targetFolderId && isDescendantOf(item.id, targetFolderId, folders)) {
-        skipped++;
+      // Folders cannot be nested under entries.
+      if (item.kind === "folder" && targetKind === "entry") {
+        folderOnEntryRejected++;
         continue;
+      }
+
+      // Cycle detection: folder→folder uses folder chain, entry→entry uses entry chain.
+      if (targetId && targetKind !== "root") {
+        if (item.kind === "folder" && targetKind === "folder") {
+          if (wouldCreateCycle(item.id, targetId, "folder", entries, folders)) {
+            skipped++;
+            continue;
+          }
+        } else if (item.kind === "entry" && targetKind === "entry") {
+          if (wouldCreateCycle(item.id, targetId, "entry", entries, folders)) {
+            skipped++;
+            continue;
+          }
+        }
       }
 
       // Skip permission-denied items in team vaults
@@ -369,10 +429,23 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
     if (skipped > 0) {
       toast.info(`${skipped} item${skipped > 1 ? "s" : ""} skipped (circular reference or insufficient permissions)`);
     }
+    if (folderOnEntryRejected > 0) {
+      toast.info(`${folderOnEntryRejected} folder${folderOnEntryRejected > 1 ? "s" : ""} skipped — folders cannot be nested under entries`);
+    }
+
+    // Resolve the target for entries and folders separately.
+    // Entries: either set folder_id (folder/root target) or parent_entry_id (entry target).
+    // Folders: only ever set parent_id (folder/root target — entries already filtered out).
+    const entryTarget: { folder_id?: string | null; parent_entry_id?: string | null } =
+      targetKind === "entry"
+        ? { parent_entry_id: targetId! }
+        : { folder_id: targetId };
+
+    const folderTargetId = targetKind === "entry" ? null : targetId;
 
     const results = await Promise.all([
-      entryIdsToMove.length > 0 ? moveEntries(entryIdsToMove, targetFolderId) : { moved: 0, failed: 0 },
-      folderIdsToMove.length > 0 ? moveFolders(folderIdsToMove, targetFolderId) : { moved: 0, failed: 0 },
+      entryIdsToMove.length > 0 ? moveEntries(entryIdsToMove, entryTarget) : { moved: 0, failed: 0 },
+      folderIdsToMove.length > 0 ? moveFolders(folderIdsToMove, folderTargetId) : { moved: 0, failed: 0 },
     ]);
 
     const totalFailed = results[0].failed + results[1].failed;
@@ -380,12 +453,13 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
       toast.error(`Failed to move ${totalFailed} item${totalFailed > 1 ? "s" : ""}`);
     }
 
-    // Auto-expand target folder after successful move
-    if (targetFolderId && (results[0].moved > 0 || results[1].moved > 0)) {
+    // Auto-expand the target after a successful move so the user sees the
+    // moved items immediately. Works for folders AND entries-with-children.
+    if (targetId && (results[0].moved > 0 || results[1].moved > 0)) {
       setExpandedFolders((prev) => {
-        if (prev.has(targetFolderId)) return prev;
+        if (prev.has(targetId)) return prev;
         const next = new Set(prev);
-        next.add(targetFolderId);
+        next.add(targetId);
         saveExpandedFolders(next, !!showFavoritesOnly, vaultId);
         return next;
       });
@@ -714,9 +788,10 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
 
     // Build hierarchical tree
     const folderMap = new Map<string, TreeNode>();
+    const entryMap = new Map<string, TreeNode>();
     const rootNodes: TreeNode[] = [];
 
-    // Create folder nodes
+    // Create folder nodes (children populated below)
     for (const folder of folders) {
       folderMap.set(folder.id, {
         id: folder.id,
@@ -729,19 +804,28 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
       });
     }
 
-    // Add entries to their folders or root
+    // Create entry nodes — entries can also act as containers
     for (const entry of filteredEntries) {
-      const node: TreeNode = {
+      entryMap.set(entry.id, {
         id: entry.id,
         name: entry.name,
         kind: "entry",
         entryType: entry.entry_type,
         customIcon: entry.icon,
         customColor: entry.color,
+        children: [],
         sortOrder: entry.sort_order,
-      };
+      });
+    }
 
-      if (entry.folder_id && folderMap.has(entry.folder_id)) {
+    // Attach each entry to its container: parent_entry_id wins over folder_id,
+    // and an entry whose parent isn't visible (e.g. filtered out by search)
+    // falls back to its folder, then to root.
+    for (const entry of filteredEntries) {
+      const node = entryMap.get(entry.id)!;
+      if (entry.parent_entry_id && entryMap.has(entry.parent_entry_id)) {
+        entryMap.get(entry.parent_entry_id)!.children!.push(node);
+      } else if (entry.folder_id && folderMap.has(entry.folder_id)) {
         folderMap.get(entry.folder_id)!.children!.push(node);
       } else {
         rootNodes.push(node);
@@ -792,11 +876,16 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
 
   const renderNode = (node: TreeNode, depth: number = 0) => {
     const isFolder = node.kind === "folder";
+    const hasChildren = (node.children?.length ?? 0) > 0;
+    // Folders are always expandable (so empty folders still show a chevron);
+    // entries are expandable only when they actually contain nested children.
+    const isExpandable = isFolder || hasChildren;
     const isExpanded = expandedFolders.has(node.id);
     const isSelected = selectedEntryIds.has(node.id);
     const isRenaming = renamingId === node.id;
     const isLocked = !isFolder && lockedEntryIds.has(node.id);
-    const isDragOver = isFolder && dragOverFolderId === node.id;
+    // Both folders and entries accept drops (entries become parents of nested entries).
+    const isDragOver = dragOverFolderId === node.id;
     const iconType = isFolder ? "folder" : node.entryType!;
     const Icon = getEntryIcon(iconType as EntryType | "folder", isExpanded, node.customIcon);
     const colorResult = getEntryColor(iconType as EntryType | "folder", node.customColor);
@@ -816,12 +905,12 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
           onClick={(e) => {
             if (e.ctrlKey || e.metaKey) {
-              // Ctrl/Cmd+Click: toggle selection without toggling folder expand
+              // Ctrl/Cmd+Click: toggle selection without toggling expand
               toggleSelectedEntry(node.id);
             } else {
-              // Plain click: single select + toggle folder
+              // Plain click: single select + toggle expand on any container
               setSelectedEntry(node.id);
-              if (isFolder) toggleFolder(node.id);
+              if (isExpandable) toggleFolder(node.id);
             }
           }}
           onDoubleClick={() => handleDoubleClick(node)}
@@ -856,11 +945,11 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
             e.dataTransfer.effectAllowed = "move";
           }}
           onDragOver={(e) => {
-            if (isFolder) {
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "move";
-              setDragOverFolderId(node.id);
-            }
+            // Both folders and entries accept drops. Entries become parents
+            // of nested entries (sets parent_entry_id); folders remain folders.
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            setDragOverFolderId(node.id);
           }}
           onDragLeave={(e) => {
             // Only clear if leaving this node (not entering a child)
@@ -869,11 +958,10 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
             }
           }}
           onDrop={(e) => {
-            if (!isFolder) return;
             handleDrop(e, node.id);
           }}
         >
-          {isFolder ? (
+          {isExpandable ? (
             <button className="p-0.5 flex-shrink-0">
               {isExpanded ? (
                 <ChevronDownIcon size={12} />
@@ -918,7 +1006,7 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
           )}
         </div>
 
-        {isFolder && isExpanded && node.children && (
+        {isExpandable && isExpanded && node.children && node.children.length > 0 && (
           <div>
             {node.children.map((child) => renderNode(child, depth + 1))}
           </div>
