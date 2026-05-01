@@ -9,7 +9,14 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     watch: {
-      ignored: ["**/src-tauri/**", "**/electron/**", "**/dist-electron/**", "**/.worktrees/**"],
+      ignored: [
+        "**/src-tauri/**",
+        "**/electron/**",
+        "**/dist-electron/**",
+        "**/.worktrees/**",
+        "**/freerdp-helper/**",
+        "**/mcp/**",
+      ],
     },
   },
   optimizeDeps: {

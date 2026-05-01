@@ -11,7 +11,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, watch } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, watch, type WriteStream } from 'node:fs';
 import { join } from 'node:path';
 import { app, BrowserWindow } from 'electron';
 import { getFreeRdpBinaryPath } from './factory.js';
@@ -38,11 +38,27 @@ function depsExist(): boolean {
   return existsSync(join(prefix, 'lib', `libfreerdp0.${ext}`));
 }
 
-function emitProgress(progress: BuildProgress): void {
+function emitProgress(progress: BuildProgress, opts: { silent?: boolean } = {}): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send('freerdp:build-progress', progress);
   }
-  console.log(`[FreeRDP Build] [${progress.phase}] ${progress.message}${progress.detail ? ` — ${progress.detail}` : ''}`);
+  if (!opts.silent) {
+    console.log(`[FreeRDP Build] [${progress.phase}] ${progress.message}${progress.detail ? ` — ${progress.detail}` : ''}`);
+  }
+}
+
+function openBuildLog(phase: BuildProgress['phase']): WriteStream | null {
+  try {
+    const logsDir = join(app.getPath('userData'), 'logs');
+    mkdirSync(logsDir, { recursive: true });
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const path = join(logsDir, `freerdp-build-${phase}-${ts}.log`);
+    const stream = createWriteStream(path, { flags: 'a' });
+    console.log(`[FreeRDP Build] Streaming verbose output to ${path}`);
+    return stream;
+  } catch {
+    return null;
+  }
 }
 
 function runBuildScript(
@@ -60,26 +76,42 @@ function runBuildScript(
     });
 
     let output = '';
+    const logStream = openBuildLog(phase);
+    let lastConsoleLogAt = 0;
+    const HEARTBEAT_MS = 30_000;
 
-    proc.stdout?.on('data', (data: Buffer) => {
+    const handleStream = (data: Buffer) => {
       const text = data.toString();
       output += text;
+      logStream?.write(text);
       const lines = text.trim().split('\n');
       const lastLine = lines[lines.length - 1];
-      if (lastLine) {
-        emitProgress({ phase, message: `Building...`, detail: lastLine.slice(0, 200) });
-      }
-    });
+      if (!lastLine) return;
+      // Always update the renderer (UI shows live build status), but only
+      // console.log on heartbeat intervals to keep the dev terminal readable.
+      const now = Date.now();
+      const heartbeat = now - lastConsoleLogAt >= HEARTBEAT_MS;
+      if (heartbeat) lastConsoleLogAt = now;
+      emitProgress(
+        { phase, message: 'Building...', detail: lastLine.slice(0, 200) },
+        { silent: !heartbeat },
+      );
+    };
 
-    proc.stderr?.on('data', (data: Buffer) => {
-      output += data.toString();
-    });
+    proc.stdout?.on('data', handleStream);
+    proc.stderr?.on('data', handleStream);
+
+    const finalize = () => {
+      logStream?.end();
+    };
 
     proc.on('close', (code) => {
+      finalize();
       resolve({ success: code === 0, output });
     });
 
     proc.on('error', (err) => {
+      finalize();
       resolve({ success: false, output: err.message });
     });
   });
