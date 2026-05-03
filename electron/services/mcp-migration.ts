@@ -20,6 +20,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import { getSocketPath } from '../ipc-server/server.js';
 import { getEnvConfig } from './env-config.js';
 
@@ -36,7 +37,10 @@ interface ClaudeConfig {
   [key: string]: unknown;
 }
 
+// Anchored pattern for config-args matching (args[0] is the binary path alone).
 const CONDUIT_PATH_PATTERN = /[/\\](conduit(?:-desktop)?)[/\\]mcp[/\\]dist[/\\]index\.(?:js|cjs|mjs)$/i;
+// Lenient version for process-command-line matching (followed by args or EOL).
+const CONDUIT_PATH_IN_COMMAND = /[/\\](conduit(?:-desktop)?)[/\\]mcp[/\\]dist[/\\]index\.(?:js|cjs|mjs)(?:\s|$)/i;
 
 function getClaudeConfigPath(): string {
   return path.join(os.homedir(), '.claude.json');
@@ -133,4 +137,60 @@ export function migrateStaleConduitMcpEntries(currentMcpPath: string): number {
   }
 
   return migrated;
+}
+
+/**
+ * Reap any MCP node processes spawned from stale Conduit paths. When a
+ * Claude Code (or Codex) session was already running at the moment we
+ * rewrote `~/.claude.json`, it kept the stale process alive even though
+ * the config now points at the current build. SIGTERMing those processes
+ * lets the CLI host respawn them from the migrated config the next time
+ * MCP is needed — restoring quota tracking and silencing the
+ * `[UNKNOWN_REQUEST] GetQuotaMirror` spam without any user action.
+ *
+ * Conservative match: only nodeprocesses whose command line contains
+ * `/conduit/mcp/dist/index.` or other historical Conduit-MCP locations
+ * AND is not the current build's path. Returns the number of processes
+ * killed. Best-effort; logged and swallowed on error.
+ *
+ * Windows: skipped — `ps` isn't reliably available, and Conduit on
+ * Windows users are unlikely to have predecessor binaries installed.
+ */
+export function reapStaleConduitMcpProcesses(currentMcpPath: string): number {
+  if (process.platform === 'win32') return 0;
+
+  let psOut: string;
+  try {
+    psOut = execSync('ps -axww -o pid=,command=', { encoding: 'utf-8' });
+  } catch (err) {
+    console.warn('[mcp-migration] ps failed, cannot reap stale MCPs:', err);
+    return 0;
+  }
+
+  const currentNorm = path.normalize(currentMcpPath);
+  let killed = 0;
+  for (const line of psOut.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const spaceIdx = trimmed.indexOf(' ');
+    if (spaceIdx === -1) continue;
+    const pidStr = trimmed.slice(0, spaceIdx);
+    const command = trimmed.slice(spaceIdx + 1);
+    const pid = parseInt(pidStr, 10);
+    if (!Number.isFinite(pid) || pid === process.pid) continue;
+
+    if (!/\bnode\b/.test(command)) continue;
+    if (!CONDUIT_PATH_IN_COMMAND.test(command)) continue;
+    if (command.includes(currentNorm)) continue;
+
+    try {
+      process.kill(pid, 'SIGTERM');
+      console.log(`[mcp-migration] Reaped stale Conduit MCP process pid=${pid}`);
+      killed += 1;
+    } catch (err) {
+      // Process may have exited between ps and kill, or we lack permission.
+      console.warn(`[mcp-migration] Could not SIGTERM pid=${pid}:`, err);
+    }
+  }
+  return killed;
 }
