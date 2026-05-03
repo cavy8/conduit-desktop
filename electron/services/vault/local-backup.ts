@@ -1,5 +1,5 @@
 /**
- * Local folder backup service for the vault (and optionally chat DB).
+ * Local folder backup service for the vault.
  *
  * Orchestrates debounced encrypted backups to a user-chosen directory,
  * retention-based pruning, and state broadcasting to the renderer.
@@ -19,8 +19,11 @@ const PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 /** Vault backup filename prefix. */
 const VAULT_PREFIX = 'conduit-vault-';
 
-/** Chat backup filename prefix. */
-const CHAT_PREFIX = 'conduit-chat-';
+/**
+ * Legacy chat backup filename prefix. Kept only for cleanup of pre-existing
+ * files left behind after chat history was removed from the app.
+ */
+const LEGACY_CHAT_PREFIX = 'conduit-chat-';
 
 /** Encrypted file extension. */
 const ENC_EXT = '.enc';
@@ -34,7 +37,6 @@ export interface LocalBackupState {
   enabled: boolean;
   backupPath: string | null;
   retentionDays: number;
-  includeChat: boolean;
 }
 
 export interface LocalBackupEntry {
@@ -42,17 +44,15 @@ export interface LocalBackupEntry {
   fullPath: string;
   created_at: string;
   size: number;
-  type: 'vault' | 'chat';
+  type: 'vault';
 }
 
 export class LocalBackupService {
   private masterPasswordBuf: Buffer | null = null;
   private vaultPath: string | null = null;
-  private chatDbPath: string | null = null;
   private enabled = false;
   private backupPath: string | null = null;
   private retentionDays = 30;
-  private includeChat = true;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
   private backingUp = false;
@@ -65,7 +65,6 @@ export class LocalBackupService {
     enabled: false,
     backupPath: null,
     retentionDays: 30,
-    includeChat: true,
   };
 
   /**
@@ -74,20 +73,16 @@ export class LocalBackupService {
   configure(opts: {
     masterPassword: string;
     vaultPath: string;
-    chatDbPath?: string | null;
     enabled: boolean;
     backupPath: string | null;
     retentionDays: number;
-    includeChat: boolean;
   }): void {
     if (this.masterPasswordBuf) this.masterPasswordBuf.fill(0);
     this.masterPasswordBuf = Buffer.from(opts.masterPassword, 'utf-8');
     this.vaultPath = opts.vaultPath;
-    this.chatDbPath = opts.chatDbPath ?? null;
     this.enabled = opts.enabled;
     this.backupPath = opts.backupPath;
     this.retentionDays = opts.retentionDays;
-    this.includeChat = opts.includeChat;
 
     if (opts.enabled && opts.backupPath) {
       this.updateState({
@@ -96,7 +91,6 @@ export class LocalBackupService {
         error: null,
         backupPath: opts.backupPath,
         retentionDays: opts.retentionDays,
-        includeChat: opts.includeChat,
       });
 
       // Prune old backups on startup
@@ -114,7 +108,6 @@ export class LocalBackupService {
         error: null,
         backupPath: opts.backupPath,
         retentionDays: opts.retentionDays,
-        includeChat: opts.includeChat,
       });
     }
   }
@@ -131,23 +124,18 @@ export class LocalBackupService {
       this.masterPasswordBuf = null;
     }
     this.vaultPath = null;
-    this.chatDbPath = null;
     this.updateState({ status: 'disabled', enabled: false, error: null });
   }
 
   /**
-   * Update settings without full reconfigure (for retention/includeChat changes).
+   * Update settings without full reconfigure (for retention changes).
    */
-  updateSettings(opts: { retentionDays?: number; includeChat?: boolean }): void {
+  updateSettings(opts: { retentionDays?: number }): void {
     if (opts.retentionDays !== undefined) {
       this.retentionDays = opts.retentionDays;
     }
-    if (opts.includeChat !== undefined) {
-      this.includeChat = opts.includeChat;
-    }
     this.updateState({
       retentionDays: this.retentionDays,
-      includeChat: this.includeChat,
     });
   }
 
@@ -197,10 +185,7 @@ export class LocalBackupService {
 
       for (const name of files) {
         if (!name.endsWith(ENC_EXT)) continue;
-
-        const isVault = name.startsWith(VAULT_PREFIX);
-        const isChat = name.startsWith(CHAT_PREFIX);
-        if (!isVault && !isChat) continue;
+        if (!name.startsWith(VAULT_PREFIX)) continue;
 
         const fullPath = path.join(this.backupPath, name);
         try {
@@ -210,7 +195,7 @@ export class LocalBackupService {
             fullPath,
             created_at: stat.mtime.toISOString(),
             size: stat.size,
-            type: isVault ? 'vault' : 'chat',
+            type: 'vault',
           });
         } catch {
           // Skip files we can't stat
@@ -286,18 +271,6 @@ export class LocalBackupService {
       const vaultFilename = `${VAULT_PREFIX}${ts}${ENC_EXT}`;
       this.atomicWrite(path.join(backupDir, vaultFilename), encryptedVault);
 
-      // Backup chat DB if enabled and file exists
-      if (this.includeChat && this.chatDbPath && fs.existsSync(this.chatDbPath)) {
-        try {
-          const chatBuffer = fs.readFileSync(this.chatDbPath);
-          const encryptedChat = encryptForLocalBackup(chatBuffer, masterPassword);
-          const chatFilename = `${CHAT_PREFIX}${ts}${ENC_EXT}`;
-          this.atomicWrite(path.join(backupDir, chatFilename), encryptedChat);
-        } catch (chatErr) {
-          console.warn('[local-backup] Chat backup failed (vault backup succeeded):', chatErr);
-        }
-      }
-
       const nowStr = now.toISOString();
       this.updateState({ status: 'backed-up', lastBackedUpAt: nowStr, error: null });
       console.log('[local-backup] Backup complete at', nowStr);
@@ -346,6 +319,35 @@ export class LocalBackupService {
 
     if (pruned > 0) {
       console.log(`[local-backup] Pruned ${pruned} backup(s) older than ${this.retentionDays} day(s)`);
+    }
+
+    this.cleanupLegacyChatBackups();
+  }
+
+  /**
+   * Sweep any pre-existing `conduit-chat-*.enc` files left behind from when
+   * chat history was backed up. Runs every prune cycle (best-effort).
+   */
+  private cleanupLegacyChatBackups(): void {
+    if (!this.backupPath) return;
+    try {
+      if (!fs.existsSync(this.backupPath)) return;
+      const files = fs.readdirSync(this.backupPath);
+      let removed = 0;
+      for (const name of files) {
+        if (!name.startsWith(LEGACY_CHAT_PREFIX) || !name.endsWith(ENC_EXT)) continue;
+        try {
+          fs.unlinkSync(path.join(this.backupPath, name));
+          removed++;
+        } catch {
+          // Skip files we can't delete
+        }
+      }
+      if (removed > 0) {
+        console.log(`[local-backup] Removed ${removed} legacy chat backup file(s)`);
+      }
+    } catch {
+      // Best-effort cleanup
     }
   }
 

@@ -69,7 +69,6 @@ Two tables are queried (read-only from the app):
 | `mcp_enabled` | bool | true | true | true |
 | `mcp_daily_quota` | number | 50 | -1 | -1 |
 | `cloud_sync_enabled` | bool | false | false | true |
-| `chat_cloud_sync_enabled` | bool | false | false | true |
 | `cloud_backup_days` | number | 1 | 14 | 180 |
 | `shared_vaults` | bool | false | false | true |
 | `password_history_limit` | number | 3 | -1 | -1 |
@@ -78,6 +77,7 @@ Notes:
 - `-1` = unlimited for numeric limits
 - `mcp_daily_quota` is enforced locally by the MCP server (honor-system)
 - Removed in WS1: `ai_chat_enabled`, `ai_token_budget_monthly`, `ai_max_output`, `auto_compaction` (built-in agent retired)
+- Removed later: `chat_cloud_sync_enabled` (in-app chat history layer removed; CLIs own their own session state)
 
 ### Query Pattern
 Profile is fetched with a foreign-key join:

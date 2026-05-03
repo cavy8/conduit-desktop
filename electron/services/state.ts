@@ -12,7 +12,6 @@ import { ChatStore } from './chat/chat-store.js';
 import { ConduitVault } from './vault/vault.js';
 import { CloudSyncService } from './vault/cloud-sync.js';
 import { LocalBackupService } from './vault/local-backup.js';
-import { ChatCloudSyncService } from './chat/chat-cloud-sync.js';
 import { TerminalManager } from './terminal/manager.js';
 import { WebSessionManager } from './web/manager.js';
 import { RdpSessionManager } from './rdp/session.js';
@@ -102,7 +101,6 @@ export class AppState {
   chatStore: ChatStore;
   cloudSync: CloudSyncService;
   localBackup: LocalBackupService;
-  chatCloudSync: ChatCloudSyncService;
   terminalManager: TerminalManager;
   webManager: WebSessionManager;
   rdpManager: RdpSessionManager;
@@ -189,7 +187,6 @@ export class AppState {
     this.commandExecutor = new CommandExecutor();
     this.cloudSync = new CloudSyncService(this.authService);
     this.localBackup = new LocalBackupService();
-    this.chatCloudSync = new ChatCloudSyncService(this.authService);
 
     // Register engine adapters
     this.engineManager.register(new ClaudeCodeEngine(this.engineManager));

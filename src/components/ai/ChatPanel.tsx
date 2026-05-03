@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect } from "react";
-import { SendIcon, LoaderIcon, UserIcon, PlusIcon, AlertTriangleIcon, HistoryIcon, ArrowLeftIcon, PencilIcon, RefreshIcon, PlayerStopFilledIcon, TerminalIcon } from "../../lib/icons";
+import { SendIcon, LoaderIcon, UserIcon, PlusIcon, AlertTriangleIcon, PencilIcon, RefreshIcon, PlayerStopFilledIcon, TerminalIcon, ChevronDownIcon } from "../../lib/icons";
 import { useAiStore, initEngineStreamListener, initEngineModelRefreshListener, ENGINE_SLASH_COMMANDS } from "../../stores/aiStore";
 import type { EngineType } from "../../stores/aiStore";
 import { invoke } from "../../lib/electron";
-import ChatHistoryPanel from "./ChatHistoryPanel";
 import EngineLogo from "./EngineLogo";
-import EngineSelector from "./EngineSelector";
+import EnginePicker from "./EnginePicker";
 import ModelPicker from "./ModelPicker";
 import MessageBlockRenderer from "./blocks/MessageBlockRenderer";
 import ToolApprovalCard from "./ToolApprovalCard";
@@ -19,18 +18,14 @@ export default function ChatPanel() {
     engineMessages,
     engineStreamingBlocks,
     engineLoading,
-    showHistory,
     sendEngineMessage,
     editEngineMessage,
     retryEngineMessage,
     cancelEngineMessage,
     createEngineSession,
     respondToApproval,
-    setShowHistory,
-    engineSessionReadOnly,
   } = useAiStore();
 
-  const engineAvailability = useAiStore((s) => s.engineAvailability);
   const showModelPicker = useAiStore((s) => s.showModelPicker);
   const pendingEngineModel = useAiStore((s) => s.pendingEngineModel);
   const engineSessions = useAiStore((s) => s.engineSessions);
@@ -51,6 +46,28 @@ export default function ChatPanel() {
   const [agentTerminalError, setAgentTerminalError] = useState<string | null>(null);
   const [agentTerminalLoading, setAgentTerminalLoading] = useState(false);
   const agentTerminalEngineRef = useRef<EngineType | null>(null);
+
+  // First-launch engine picker. Shown until the user explicitly picks an
+  // engine; after that the saved default_engine launches silently and the
+  // user changes it via Settings → AI → Agent.
+  // null = not loaded yet, true = show picker, false = skip picker
+  const [pickerNeeded, setPickerNeeded] = useState<boolean | null>(null);
+
+  // Header engine switcher — lets the user temporarily swap engines for the
+  // current session without touching the saved default_engine in settings.
+  const [engineSwitcherOpen, setEngineSwitcherOpen] = useState(false);
+  const engineSwitcherRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!engineSwitcherOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (engineSwitcherRef.current && !engineSwitcherRef.current.contains(e.target as Node)) {
+        setEngineSwitcherOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [engineSwitcherOpen]);
 
   // Agent terminal lifecycle
   const launchAgentTerminal = async (engineType: EngineType) => {
@@ -75,8 +92,10 @@ export default function ChatPanel() {
     }
   };
 
-  // Effect: manage terminal mode lifecycle
+  // Effect: manage terminal mode lifecycle. Held until pickerNeeded resolves
+  // (and is false) so a first-launch user picks before any terminal spawns.
   useEffect(() => {
+    if (pickerNeeded === null || pickerNeeded === true) return;
     if (terminalMode) {
       // Need a terminal — launch if not running or engine changed
       if (!agentTerminalSessionId || agentTerminalEngineRef.current !== activeEngineType) {
@@ -93,7 +112,7 @@ export default function ChatPanel() {
         invoke('terminal_close', { sessionId: agentTerminalSessionId }).catch(() => {});
       }
     };
-  }, [terminalMode, activeEngineType]);
+  }, [terminalMode, activeEngineType, pickerNeeded]);
 
   // Filtered slash commands for autocomplete
   const filteredSlashCommands = input.startsWith('/') && !input.includes(' ')
@@ -118,7 +137,7 @@ export default function ChatPanel() {
     initEngineModelRefreshListener();
 
     // Sync AI preferences from persisted settings (survives vault switches)
-    invoke<{ default_engine?: string; terminal_mode?: boolean }>('settings_get').then((s) => {
+    invoke<{ default_engine?: string; terminal_mode?: boolean; engine_picker_completed?: boolean }>('settings_get').then((s) => {
       const store = useAiStore.getState();
       if (s.terminal_mode !== undefined && s.terminal_mode !== store.terminalMode) {
         store.setTerminalMode(s.terminal_mode);
@@ -126,7 +145,12 @@ export default function ChatPanel() {
       if (s.default_engine && s.default_engine !== store.activeEngineType) {
         store.setActiveEngine(s.default_engine as EngineType);
       }
-    }).catch(() => {});
+      setPickerNeeded(!s.engine_picker_completed);
+    }).catch(() => {
+      // If settings can't be read, default to showing the picker so the user
+      // is never silently auto-launched into an engine they didn't choose.
+      setPickerNeeded(true);
+    });
   }, []);
 
   // Auto-scroll to bottom
@@ -192,57 +216,76 @@ export default function ChatPanel() {
 
   const handleNewChat = async () => {
     if (terminalMode) {
-      // Terminal mode — restart the terminal
+      // Terminal mode — restart the terminal with the saved engine.
       cleanupAgentTerminal();
       await launchAgentTerminal(activeEngineType);
       return;
     }
-    // Create a new session
+    // Chat mode — start a fresh session.
     await createEngineSession();
   };
 
   const hasActiveSession = !!activeEngineSessionId;
+  const showPicker = pickerNeeded === true;
 
   return (
     <div className="flex flex-col h-full bg-canvas">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-stroke">
-        <div className="flex items-center gap-2 min-w-0 overflow-hidden">
-          {showHistory ? (
-            <>
-              <button
-                onClick={() => setShowHistory(false)}
-                className="p-1 hover:bg-panel rounded text-ink-muted hover:text-ink"
-              >
-                <ArrowLeftIcon size={16} />
-              </button>
-              <span className="font-medium text-ink text-sm">Chat History</span>
-            </>
-          ) : (
-            <>
-              <EngineSelector />
-              {currentEngineModel && (
-                <button
-                  onClick={() => useAiStore.getState().fetchEngineModels()}
-                  className="ml-1 px-2 py-0.5 text-xs text-ink-muted hover:text-ink bg-well hover:bg-raised border border-stroke rounded truncate max-w-[160px]"
-                  title={`Model: ${currentEngineModel} (click to change)`}
-                >
-                  {currentEngineModel}
-                </button>
-              )}
-            </>
+        <div className="flex items-center gap-2 min-w-0">
+          {/* Active engine — click to temporarily swap for this session.
+              Doesn't touch the saved default; change that in Settings. */}
+          <div className="relative" ref={engineSwitcherRef}>
+            <button
+              onClick={() => setEngineSwitcherOpen((o) => !o)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-well border border-stroke hover:bg-raised text-ink-muted hover:text-ink"
+              title="Switch engine for this session"
+            >
+              <EngineLogo type={activeEngineType} size={14} />
+              <span className="text-xs">
+                {activeEngineType === 'claude-code' ? 'Claude Code' : 'Codex'}
+              </span>
+              <ChevronDownIcon size={12} className="text-ink-faint" />
+            </button>
+            {engineSwitcherOpen && (
+              <div className="absolute top-full left-0 mt-1 bg-panel border border-stroke rounded-md shadow-lg z-20 min-w-[180px] py-1">
+                {(['claude-code', 'codex'] as EngineType[]).map((type) => {
+                  const active = activeEngineType === type;
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => {
+                        // In-memory only — never write to settings here so
+                        // next launch still uses the saved default.
+                        useAiStore.getState().setActiveEngine(type);
+                        setEngineSwitcherOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left hover:bg-raised ${
+                        active ? 'text-ink' : 'text-ink-muted'
+                      }`}
+                    >
+                      <EngineLogo type={type} size={14} />
+                      <span className="flex-1">
+                        {type === 'claude-code' ? 'Claude Code' : 'Codex'}
+                      </span>
+                      {active && <span className="text-conduit-400 text-xs">●</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          {currentEngineModel && (
+            <button
+              onClick={() => useAiStore.getState().fetchEngineModels()}
+              className="ml-1 px-2 py-0.5 text-xs text-ink-muted hover:text-ink bg-well hover:bg-raised border border-stroke rounded truncate max-w-[160px]"
+              title={`Model: ${currentEngineModel} (click to change)`}
+            >
+              {currentEngineModel}
+            </button>
           )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
-          {!showHistory && (
-            <button
-              onClick={() => setShowHistory(true)}
-              className="p-2 hover:bg-panel rounded text-ink-muted hover:text-ink"
-              title="Chat history"
-            >
-              <HistoryIcon size={16} />
-            </button>
-          )}
           <button
             onClick={handleNewChat}
             className="p-2 hover:bg-panel rounded text-ink-muted hover:text-ink"
@@ -253,13 +296,14 @@ export default function ChatPanel() {
         </div>
       </div>
 
-      {/* History Panel or Messages */}
-      {showHistory ? (
-        <ChatHistoryPanel />
-      ) : terminalMode ? (
+      {/* Messages */}
+      {terminalMode ? (
         /* ── Terminal Mode ── */
         <div className="flex-1 min-h-0 flex flex-col">
-          {agentTerminalLoading && (
+          {showPicker && (
+            <EnginePicker onPick={() => { setPickerNeeded(false); }} />
+          )}
+          {!showPicker && agentTerminalLoading && (
             <div className="flex items-center justify-center h-full">
               <div className="flex flex-col items-center gap-3">
                 <div className="w-6 h-6 border-2 border-conduit-500 border-t-transparent rounded-full animate-spin" />
@@ -267,7 +311,7 @@ export default function ChatPanel() {
               </div>
             </div>
           )}
-          {agentTerminalError && (
+          {!showPicker && agentTerminalError && (
             <div className="flex items-center justify-center h-full">
               <div className="text-center max-w-sm">
                 <AlertTriangleIcon size={48} className="text-red-400 mx-auto mb-3" />
@@ -282,7 +326,7 @@ export default function ChatPanel() {
               </div>
             </div>
           )}
-          {agentTerminalSessionId && !agentTerminalLoading && !agentTerminalError && (
+          {!showPicker && agentTerminalSessionId && !agentTerminalLoading && !agentTerminalError && (
             <div className="flex-1 min-h-0">
               <TerminalView sessionId={agentTerminalSessionId} isActive={true} isAgentTerminal />
             </div>
@@ -292,59 +336,37 @@ export default function ChatPanel() {
         /* ── Engine Mode Messages ── */
         <>
           <div className="flex-1 overflow-y-auto p-4 space-y-4 allow-select">
-            {/* Empty state */}
-            {!hasActiveSession && engineMessages.length === 0 && (() => {
-              const engineName = activeEngineType === 'claude-code' ? 'Claude Code' : 'Codex';
-              const isAvailable = engineAvailability?.[activeEngineType] ?? false;
-              const availabilityLoaded = engineAvailability !== null;
+            {/* First-launch picker — replaces the silent default so the user
+                explicitly chooses an agent the first time. After they pick,
+                this is gated off forever (change in Settings → AI → Agent). */}
+            {showPicker && (
+              <EnginePicker
+                onPick={async () => {
+                  setPickerNeeded(false);
+                  await createEngineSession();
+                }}
+              />
+            )}
 
-              if (availabilityLoaded && !isAvailable) {
-                // Engine not installed / not authenticated
-                const cliName = activeEngineType === 'claude-code' ? 'claude' : 'codex';
-                return (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-center max-w-sm">
-                      <AlertTriangleIcon size={48} className="text-amber-400 mx-auto mb-3" />
-                      <p className="text-ink-muted mb-2 font-medium">{engineName} is not available</p>
-                      <p className="text-xs text-ink-faint mb-4">
-                        Make sure the <code className="px-1 py-0.5 bg-well rounded text-conduit-300">{cliName}</code> CLI is installed and authenticated. Run:
-                      </p>
-                      <code className="block px-3 py-2 bg-well border border-stroke rounded text-sm text-ink-muted mb-4">
-                        {cliName} login
-                      </code>
-                      <p className="text-xs text-ink-faint mb-4">
-                        After authenticating, restart the app or check status in <strong>Settings &gt; AI</strong>.
-                      </p>
-                      <button
-                        onClick={() => useAiStore.getState().checkEngineAvailability()}
-                        className="px-4 py-2 bg-conduit-600 hover:bg-conduit-700 text-white rounded-lg text-sm"
-                      >
-                        Re-check Availability
-                      </button>
-                    </div>
+            {/* Post-picker empty state — no active session yet, no messages */}
+            {!showPicker && !hasActiveSession && engineMessages.length === 0 && (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <div className="mx-auto mb-3 flex items-center justify-center">
+                    <EngineLogo type={activeEngineType} size={48} className="text-ink-faint" />
                   </div>
-                );
-              }
-
-              return (
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-center">
-                    <div className="mx-auto mb-3 flex items-center justify-center">
-                      <EngineLogo type={activeEngineType} size={48} className="text-ink-faint" />
-                    </div>
-                    <p className="text-ink-muted mb-2">
-                      {engineName} Agent
-                    </p>
-                    {currentEngineModel && (
-                      <p className="text-xs text-conduit-400 mb-2">{currentEngineModel}</p>
-                    )}
-                    <p className="text-xs text-ink-faint mb-4">
-                      Send a message to start an agent session with MCP tool access
-                    </p>
-                  </div>
+                  <p className="text-ink-muted mb-2">
+                    {activeEngineType === 'claude-code' ? 'Claude Code' : 'Codex'} Agent
+                  </p>
+                  {currentEngineModel && (
+                    <p className="text-xs text-conduit-400 mb-2">{currentEngineModel}</p>
+                  )}
+                  <p className="text-xs text-ink-faint mb-4">
+                    Send a message to start an agent session with MCP tool access
+                  </p>
                 </div>
-              );
-            })()}
+              </div>
+            )}
 
             {/* Engine messages */}
             {engineMessages.map((msg, index) => {
@@ -352,8 +374,8 @@ export default function ChatPanel() {
               const isAssistant = msg.role === 'assistant';
               const isSystem = msg.role === 'system';
 
-              const canEdit = isUser && !engineLoading && !engineSessionReadOnly;
-              const canRetry = isAssistant && !engineLoading && !engineSessionReadOnly;
+              const canEdit = isUser && !engineLoading;
+              const canRetry = isAssistant && !engineLoading;
 
               if (isSystem) {
                 return (
@@ -470,14 +492,10 @@ export default function ChatPanel() {
           {/* Model picker */}
           {showModelPicker && <ModelPicker />}
 
-          {/* Engine read-only banner */}
-          {engineSessionReadOnly && engineMessages.length > 0 && (
-            <div className="px-4 py-2 border-t border-stroke bg-amber-900/20 text-amber-300 text-xs text-center">
-              This session has expired. Start a new conversation to continue.
-            </div>
-          )}
-
-          {/* Engine input */}
+          {/* Engine input — hidden while the engine picker is showing so the
+              user can't bypass the picker by sending a message with the silent
+              default engine. */}
+          {!showPicker && (
           <div className="p-4 border-t border-stroke relative">
             {/* Editing indicator */}
             {engineEditingIndex !== null && (
@@ -576,7 +594,7 @@ export default function ChatPanel() {
                 }}
                 placeholder={engineEditingIndex !== null ? "Edit your message..." : `Message ${activeEngineType === 'claude-code' ? 'Claude Code' : 'Codex'}... (type / then Enter for commands)`}
                 className="flex-1 px-4 py-2 bg-well border border-stroke rounded-lg focus:outline-none focus:ring-2 focus:ring-conduit-500 text-ink placeholder-ink-faint resize-none overflow-y-auto min-h-[56px]"
-                disabled={engineLoading || engineSessionReadOnly}
+                disabled={engineLoading}
               />
               {engineLoading ? (
                 <button
@@ -597,6 +615,7 @@ export default function ChatPanel() {
               )}
             </div>
           </div>
+          )}
         </>
       )}
     </div>

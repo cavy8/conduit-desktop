@@ -82,11 +82,9 @@ export function wireBackupServices(state: AppState, masterPassword: string): voi
       state.localBackup.configure({
         masterPassword,
         vaultPath: state.currentVaultPath,
-        chatDbPath: state.chatStore.getDbPath(),
         enabled: true,
         backupPath: settings.local_backup_path,
         retentionDays: settings.local_backup_retention_days,
-        includeChat: settings.local_backup_include_chat,
       });
     }
   } catch (err) {
@@ -115,22 +113,6 @@ export function wireBackupServices(state: AppState, masterPassword: string): voi
   // Rebuild after all services configured
   rebuildMutationCallback(state);
 
-  // Wire chat cloud sync if enabled
-  const chatCloudEnabled = state.vault.isChatCloudSyncEnabled();
-  if (chatCloudEnabled) {
-    state.chatCloudSync.configure({
-      chatStore: state.chatStore,
-      masterPassword,
-      enabled: true,
-    });
-    // Engine conversations call state.chatCloudSync.notifyMutation directly
-    // in electron/ipc/engine.ts when they mutate the chat store.
-    // Run full sync in background (don't await)
-    state.chatCloudSync.fullSync().catch((err) => {
-      console.error('[vault] Chat cloud sync initial sync failed:', err);
-    });
-  }
-
   // Start watching for external file changes (iCloud Drive, network shares)
   startVaultWatcher(state);
   // Rebuild mutation callback again to include watcher write-lock suppression
@@ -144,7 +126,6 @@ export function teardownBackupServices(state: AppState): void {
   state.vaultWatcher = null;
   state.cloudSync.disable();
   state.localBackup.disable();
-  state.chatCloudSync.disable();
   state.vault.setOnMutation(null);
 }
 

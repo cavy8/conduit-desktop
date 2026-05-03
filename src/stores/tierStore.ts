@@ -15,7 +15,6 @@ interface TierStoreState {
   mcpEnabled: boolean;
   mcpDailyQuota: number; // -1 = unlimited
   cloudSyncEnabled: boolean;
-  chatCloudSyncEnabled: boolean;
   sharedVaults: boolean;
 
   // Trial state
@@ -43,7 +42,6 @@ export const useTierStore = create<TierStoreState>((set, get) => ({
   mcpEnabled: true, // free tier has MCP with daily quota
   mcpDailyQuota: 50,
   cloudSyncEnabled: false, // Team-only
-  chatCloudSyncEnabled: false, // Team-only
   sharedVaults: false, // Team-only
 
   isTrialing: false,
@@ -69,7 +67,6 @@ export const useTierStore = create<TierStoreState>((set, get) => ({
         mcpEnabled: true,
         mcpDailyQuota: 50,
         cloudSyncEnabled: false,
-        chatCloudSyncEnabled: false,
         sharedVaults: false,
         isTrialing: false,
         trialDaysRemaining: -1,
@@ -109,7 +106,6 @@ export const useTierStore = create<TierStoreState>((set, get) => ({
     const mcpEnabled = canAccessFeature(profile, 'mcp_enabled');
     const mcpDailyQuota = getFeatureLimit(profile, 'mcp_daily_quota') || 50;
     const cloudSyncEnabled = canAccessFeature(profile, 'cloud_sync_enabled');
-    const chatCloudSyncEnabled = canAccessFeature(profile, 'chat_cloud_sync_enabled');
     const sharedVaults = canAccessFeature(profile, 'shared_vaults');
 
     // Trial state
@@ -161,7 +157,6 @@ export const useTierStore = create<TierStoreState>((set, get) => ({
       mcpEnabled,
       mcpDailyQuota,
       cloudSyncEnabled,
-      chatCloudSyncEnabled,
       sharedVaults,
       isTrialing,
       trialDaysRemaining,

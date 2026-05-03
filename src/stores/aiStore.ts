@@ -1,31 +1,11 @@
 import { create } from "zustand";
 import { invoke, listen, type UnlistenFn } from "../lib/electron";
 
-export interface PersistentConversationInfo {
-  id: string;
-  title: string | null;
-  provider: string;
-  model: string;
-  messageCount: number;
-  isPinned: boolean;
-  engineSessionId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ChatCloudSyncState {
-  status: 'idle' | 'syncing' | 'synced' | 'error' | 'disabled';
-  lastSyncedAt: string | null;
-  error: string | null;
-  enabled: boolean;
-}
-
 export interface AiTierCapabilities {
   cli_agents_enabled: boolean;
   mcp_enabled: boolean;
   mcp_daily_quota: number;
   cloud_sync_enabled: boolean;
-  chat_cloud_sync_enabled: boolean;
   shared_vaults: boolean;
   tier_name: string;
   tier_display_name: string;
@@ -78,15 +58,6 @@ export interface EngineAvailability {
 interface AiState {
   tierCapabilities: AiTierCapabilities | null;
 
-  // Persistent history state
-  persistentConversations: PersistentConversationInfo[];
-  historyLoading: boolean;
-  historySearchQuery: string;
-  showHistory: boolean;
-
-  // Chat cloud sync state
-  chatSyncState: ChatCloudSyncState | null;
-
   // Engine state (unified AI engine abstraction)
   activeEngineType: EngineType;
   engineAvailability: EngineAvailability | null;
@@ -99,31 +70,13 @@ interface AiState {
   showModelPicker: boolean;
   engineModelOptions: EngineModelInfo[];
 
-  // Engine conversation persistence
-  activeEngineConversationId: string | null;
-  engineSessionReadOnly: boolean;
-
   // Terminal mode
   terminalMode: boolean;
 
   // Actions
-  deleteConversation: (id: string) => Promise<void>;
   fetchTierCapabilities: () => Promise<void>;
   setLocalModeTier: () => void;
   loadCachedTier: () => Promise<void>;
-
-  // Persistent history actions
-  loadPersistentConversations: (search?: string) => Promise<void>;
-  renameConversation: (id: string, title: string) => Promise<void>;
-  setShowHistory: (show: boolean) => void;
-  setHistorySearchQuery: (query: string) => void;
-
-  // Chat cloud sync actions
-  fetchChatSyncState: () => Promise<void>;
-  enableChatSync: () => Promise<void>;
-  disableChatSync: () => Promise<void>;
-  syncChatNow: () => Promise<void>;
-  deleteChatCloudData: () => Promise<void>;
 
   // Terminal mode actions
   setTerminalMode: (enabled: boolean) => void;
@@ -138,17 +91,11 @@ interface AiState {
   cancelEngineMessage: () => Promise<void>;
   respondToApproval: (approvalId: string, approved: boolean) => Promise<void>;
   destroyEngineSession: (sessionId: string) => Promise<void>;
-  loadPersistedEngineSessions: () => Promise<void>;
-  resumeEngineSession: (sessionId: string, engineType: EngineType) => Promise<void>;
   executeEngineSlashCommand: (input: string) => Promise<boolean>;
   fetchEngineModels: () => Promise<void>;
   selectEngineModel: (modelId: string) => Promise<void>;
   closeModelPicker: () => void;
   pendingEngineModel: string | null;
-
-  // Engine conversation persistence actions
-  loadEngineConversationHistory: (conversationId: string) => Promise<void>;
-  loadEngineSessionMessages: (sessionId: string) => Promise<void>;
 
   // Vault switch
   resetConversationState: () => void;
@@ -186,15 +133,6 @@ function addEngineSystemMessage(content: string) {
 export const useAiStore = create<AiState>((set, get) => ({
   tierCapabilities: null,
 
-  // Persistent history
-  persistentConversations: [],
-  historyLoading: false,
-  historySearchQuery: "",
-  showHistory: false,
-
-  // Chat cloud sync
-  chatSyncState: null,
-
   // Engine state
   activeEngineType: 'claude-code' as EngineType,
   engineAvailability: null,
@@ -207,38 +145,20 @@ export const useAiStore = create<AiState>((set, get) => ({
   showModelPicker: false,
   engineModelOptions: [],
   pendingEngineModel: null,
-  activeEngineConversationId: null,
-  engineSessionReadOnly: false,
   terminalMode: false,
 
   resetConversationState: () => set({
-    persistentConversations: [],
-    historyLoading: false,
-    historySearchQuery: "",
-    showHistory: false,
-    chatSyncState: null,
     // NOTE: activeEngineType and terminalMode are intentionally NOT reset here.
     // They are user preferences persisted in settings.json and should survive vault switches.
     engineSessions: [],
     activeEngineSessionId: null,
-    activeEngineConversationId: null,
     engineMessages: [],
     engineStreamingBlocks: [],
     engineLoading: false,
     engineTokenUsage: { inputTokens: 0, outputTokens: 0 },
     showModelPicker: false,
     pendingEngineModel: null,
-    engineSessionReadOnly: false,
   }),
-
-  deleteConversation: async (id) => {
-    await invoke("ai_delete_conversation", { conversationId: id });
-    const state = get();
-    if (state.activeEngineConversationId === id) {
-      set({ activeEngineConversationId: null, activeEngineSessionId: null, engineMessages: [] });
-    }
-    await get().loadPersistentConversations(get().historySearchQuery || undefined);
-  },
 
   fetchTierCapabilities: async () => {
     try {
@@ -256,7 +176,6 @@ export const useAiStore = create<AiState>((set, get) => ({
         mcp_enabled: true,
         mcp_daily_quota: 50,
         cloud_sync_enabled: false,
-        chat_cloud_sync_enabled: false,
         shared_vaults: false,
         tier_name: 'local',
         tier_display_name: 'Local',
@@ -279,72 +198,6 @@ export const useAiStore = create<AiState>((set, get) => ({
     }
   },
 
-  // Persistent history actions
-  loadPersistentConversations: async (search) => {
-    set({ historyLoading: true });
-    try {
-      const data = await invoke<PersistentConversationInfo[]>(
-        "chat_list_conversations",
-        { search, limit: 100 }
-      );
-      set({ persistentConversations: data, historyLoading: false });
-    } catch (err) {
-      console.error("Failed to load persistent conversations:", err);
-      set({ historyLoading: false });
-    }
-  },
-
-  renameConversation: async (id, title) => {
-    try {
-      await invoke("chat_update_conversation", { conversationId: id, title });
-      await get().loadPersistentConversations(get().historySearchQuery || undefined);
-    } catch (err) {
-      console.error("Failed to rename conversation:", err);
-    }
-  },
-
-  setShowHistory: (show) => {
-    set({ showHistory: show });
-    if (show) {
-      get().loadPersistentConversations();
-    }
-  },
-
-  setHistorySearchQuery: (query) => {
-    set({ historySearchQuery: query });
-    get().loadPersistentConversations(query || undefined);
-  },
-
-  // Chat cloud sync actions
-  fetchChatSyncState: async () => {
-    try {
-      const state = await invoke<ChatCloudSyncState>("chat_cloud_sync_get_state");
-      set({ chatSyncState: state });
-    } catch (err) {
-      console.error("Failed to fetch chat sync state:", err);
-    }
-  },
-
-  enableChatSync: async () => {
-    await invoke("chat_cloud_sync_enable");
-    await get().fetchChatSyncState();
-  },
-
-  disableChatSync: async () => {
-    await invoke("chat_cloud_sync_disable");
-    await get().fetchChatSyncState();
-  },
-
-  syncChatNow: async () => {
-    await invoke("chat_cloud_sync_now");
-    await get().fetchChatSyncState();
-  },
-
-  deleteChatCloudData: async () => {
-    await invoke("chat_cloud_sync_delete");
-    await get().fetchChatSyncState();
-  },
-
   // ── Terminal mode ──────────────────────────────────────────────────────
 
   setTerminalMode: (enabled) => set({ terminalMode: enabled }),
@@ -356,8 +209,6 @@ export const useAiStore = create<AiState>((set, get) => ({
     if (prev !== type) {
       set({
         activeEngineType: type,
-        engineSessionReadOnly: false,
-        activeEngineConversationId: null,
         activeEngineSessionId: null,
         engineMessages: [],
         engineStreamingBlocks: [],
@@ -417,8 +268,6 @@ export const useAiStore = create<AiState>((set, get) => ({
       engineLoading: false,
       engineTokenUsage: { inputTokens: 0, outputTokens: 0 },
       pendingEngineModel: null,
-      activeEngineConversationId: null,
-      engineSessionReadOnly: false,
     }));
     return session.id;
   },
@@ -523,7 +372,7 @@ export const useAiStore = create<AiState>((set, get) => ({
       await invoke("engine_retry_message", {
         engineType: state.activeEngineType,
         sessionId: state.activeEngineSessionId,
-        userMessageIndex: userIndex,
+        userMessage: userContent,
       });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -584,15 +433,6 @@ export const useAiStore = create<AiState>((set, get) => ({
       activeEngineSessionId: s.activeEngineSessionId === sessionId ? null : s.activeEngineSessionId,
       engineMessages: s.activeEngineSessionId === sessionId ? [] : s.engineMessages,
     }));
-  },
-
-  loadPersistedEngineSessions: async () => {
-    try {
-      const sessions = await invoke<EngineSessionInfo[]>("engine_list_persisted_sessions", {});
-      set({ engineSessions: sessions });
-    } catch (err) {
-      console.error("Failed to load persisted engine sessions:", err);
-    }
   },
 
   executeEngineSlashCommand: async (input: string) => {
@@ -677,32 +517,6 @@ export const useAiStore = create<AiState>((set, get) => ({
     }
   },
 
-  resumeEngineSession: async (sessionId, engineType) => {
-    try {
-      const session = await invoke<EngineSessionInfo>("engine_resume_session", {
-        engineType,
-        sessionId,
-      });
-      set((s) => ({
-        activeEngineType: engineType,
-        activeEngineSessionId: session.id,
-        engineMessages: s.engineMessages.length > 0 ? s.engineMessages : [],
-        engineStreamingBlocks: [],
-        engineSessionReadOnly: false,
-        // Update the session in the list if externalId changed
-        engineSessions: s.engineSessions.map((es) =>
-          es.id === sessionId ? { ...es, ...session } : es
-        ),
-      }));
-    } catch (err) {
-      console.error("Failed to resume engine session:", err);
-      // Remove stale session from local state
-      set((s) => ({
-        engineSessions: s.engineSessions.filter((es) => es.id !== sessionId),
-      }));
-    }
-  },
-
   fetchEngineModels: async () => {
     const state = get();
     try {
@@ -747,117 +561,7 @@ export const useAiStore = create<AiState>((set, get) => ({
   closeModelPicker: () => {
     set({ showModelPicker: false });
   },
-
-  // ── Engine conversation persistence ────────────────────────────────
-
-  loadEngineConversationHistory: async (conversationId: string) => {
-    try {
-      // Load messages from backend
-      const messages = await invoke<Array<{
-        id: string;
-        role: string;
-        blocks: unknown[];
-        createdAt: string;
-      }>>('engine_load_conversation_messages', { conversationId });
-
-      // Convert to EngineMessage format
-      const engineMsgs: EngineMessage[] = messages.map((m) => ({
-        id: m.id,
-        role: m.role as 'user' | 'assistant' | 'system',
-        blocks: m.blocks as MessageBlock[],
-        timestamp: m.createdAt,
-      }));
-
-      // Find the conversation to get engine info
-      const conversations = get().persistentConversations;
-      const conv = conversations.find((c) => c.id === conversationId);
-
-      if (conv) {
-        const engineType = conv.provider as EngineType;
-        const availability = get().engineAvailability;
-        const isAvailable = availability?.[engineType] ?? false;
-
-        set({
-          activeEngineType: engineType,
-          activeEngineSessionId: null,
-          engineMessages: engineMsgs,
-          engineStreamingBlocks: [],
-          activeEngineConversationId: conversationId,
-          engineTokenUsage: { inputTokens: 0, outputTokens: 0 },
-          showHistory: false,
-        });
-
-        // Try to resume the engine session if available
-        if (conv.engineSessionId && isAvailable) {
-          try {
-            await get().resumeEngineSession(conv.engineSessionId, engineType);
-            set({ engineSessionReadOnly: false });
-          } catch {
-            // Session expired — read-only mode
-            set({
-              activeEngineSessionId: null,
-              engineSessionReadOnly: true,
-            });
-          }
-        } else {
-          // No session to resume
-          set({
-            activeEngineSessionId: null,
-            engineSessionReadOnly: !isAvailable,
-          });
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load engine conversation history:', err);
-    }
-  },
-
-  loadEngineSessionMessages: async (sessionId: string) => {
-    try {
-      // Find if there's an existing conversation for this session
-      const conv = await invoke<{ id: string; engineSessionId: string } | null>(
-        'engine_find_conversation', { engineSessionId: sessionId }
-      );
-
-      if (conv) {
-        const messages = await invoke<Array<{
-          id: string;
-          role: string;
-          blocks: unknown[];
-          createdAt: string;
-        }>>('engine_load_conversation_messages', { conversationId: conv.id });
-
-        const engineMsgs: EngineMessage[] = messages.map((m) => ({
-          id: m.id,
-          role: m.role as 'user' | 'assistant' | 'system',
-          blocks: m.blocks as MessageBlock[],
-          timestamp: m.createdAt,
-        }));
-
-        set({
-          engineMessages: engineMsgs,
-          activeEngineConversationId: conv.id,
-          engineSessionReadOnly: false,
-        });
-      }
-    } catch (err) {
-      console.error('Failed to load engine session messages:', err);
-    }
-  },
 }));
-
-// Set up chat sync state listener
-let chatSyncUnlisten: UnlistenFn | null = null;
-
-export function initChatSyncListener() {
-  if (chatSyncUnlisten) return;
-
-  listen<ChatCloudSyncState>("chat-sync:state-changed", (event) => {
-    useAiStore.setState({ chatSyncState: event.payload });
-  }).then((unlisten) => {
-    chatSyncUnlisten = unlisten;
-  });
-}
 
 // ── Engine stream listener ──────────────────────────────────────────────────
 

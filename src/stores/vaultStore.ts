@@ -29,7 +29,6 @@ export interface LocalBackupState {
   enabled: boolean;
   backupPath: string | null;
   retentionDays: number;
-  includeChat: boolean;
 }
 
 export interface LocalBackupEntry {
@@ -172,7 +171,7 @@ interface VaultState {
   localBackupNow: () => Promise<void>;
   listLocalBackups: () => Promise<void>;
   deleteLocalBackup: (fullPath: string) => Promise<void>;
-  updateLocalBackupSettings: (opts: { retentionDays?: number; includeChat?: boolean }) => Promise<void>;
+  updateLocalBackupSettings: (opts: { retentionDays?: number }) => Promise<void>;
   selectLocalBackupFolder: () => Promise<string | null>;
 
   // Team vault
@@ -636,7 +635,6 @@ export const useVaultStore = create<VaultState>((set, get) => ({
           enabled: false,
           backupPath: null,
           retentionDays: 30,
-          includeChat: true,
         },
       });
     } catch (err) {

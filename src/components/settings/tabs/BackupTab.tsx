@@ -8,7 +8,7 @@ import BackupHistoryPanel from "../../vault/BackupHistoryPanel";
 import BackupManagerDialog from "../../vault/BackupManagerDialog";
 import { formatFileSize } from "../SettingsHelpers";
 import {
-  CloudIcon, CloudOffIcon, FloppyIcon, FolderIcon, MessageIcon, TrashIcon
+  CloudIcon, CloudOffIcon, FloppyIcon, FolderIcon, TrashIcon
 } from "../../../lib/icons";
 
 export default function BackupTab() {
@@ -20,39 +20,30 @@ export default function BackupTab() {
     localBackupNow, listLocalBackups, deleteLocalBackup, updateLocalBackupSettings, selectLocalBackupFolder,
   } = useVaultStore();
   const tierCapabilities = useAiStore((s) => s.tierCapabilities);
-  const chatSyncState = useAiStore((s) => s.chatSyncState);
-  const { enableChatSync, disableChatSync, syncChatNow, deleteChatCloudData, fetchChatSyncState } = useAiStore();
   const cloudSyncAllowed = tierCapabilities?.cloud_sync_enabled ?? false;
-  const chatCloudSyncEnabled = tierCapabilities?.chat_cloud_sync_enabled ?? false;
 
   const [showBackupManager, setShowBackupManager] = useState(false);
   const [showDeleteCloudConfirm, setShowDeleteCloudConfirm] = useState(false);
   const [cloudSyncing, setCloudSyncing] = useState(false);
-  const [showDeleteChatCloudConfirm, setShowDeleteChatCloudConfirm] = useState(false);
-  const [chatCloudSyncing, setChatCloudSyncing] = useState(false);
-  const [chatSyncError, setChatSyncError] = useState<string | null>(null);
 
   // Local backup UI state
   const [localBackupBusy, setLocalBackupBusy] = useState(false);
   const [localBackupError, setLocalBackupError] = useState<string | null>(null);
   const [localBackupFolder, setLocalBackupFolder] = useState<string | null>(null);
   const [localRetentionDays, setLocalRetentionDays] = useState(30);
-  const [localIncludeChat, setLocalIncludeChat] = useState(true);
   const [showDeleteLocalConfirm, setShowDeleteLocalConfirm] = useState<string | null>(null);
 
   useEffect(() => {
     fetchCloudSyncState();
-    fetchChatSyncState();
     fetchLocalBackupState();
     listLocalBackups();
-  }, [fetchCloudSyncState, fetchChatSyncState, fetchLocalBackupState, listLocalBackups]);
+  }, [fetchCloudSyncState, fetchLocalBackupState, listLocalBackups]);
 
   // Sync local backup state into local UI state
   useEffect(() => {
     if (localBackupState) {
       setLocalBackupFolder(localBackupState.backupPath);
       setLocalRetentionDays(localBackupState.retentionDays);
-      setLocalIncludeChat(localBackupState.includeChat);
     }
   }, [localBackupState]);
 
@@ -163,26 +154,6 @@ export default function BackupTab() {
                   <span className="text-xs text-ink-muted">days</span>
                 </div>
                 <p className="text-[10px] text-ink-muted mt-0.5">Backups older than this are automatically deleted</p>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-ink-secondary">Include chat history</span>
-                <button
-                  onClick={async () => {
-                    const newVal = !localIncludeChat;
-                    setLocalIncludeChat(newVal);
-                    await updateLocalBackupSettings({ includeChat: newVal });
-                  }}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                    localIncludeChat ? "bg-conduit-600" : "bg-well"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
-                      localIncludeChat ? "translate-x-5" : "translate-x-1"
-                    }`}
-                  />
-                </button>
               </div>
 
               <div className="flex items-center justify-between text-xs text-ink-muted">
@@ -388,124 +359,6 @@ export default function BackupTab() {
             {cloudSyncAllowed
               ? "Your vault is encrypted before upload. Zero-knowledge architecture — your data cannot be read by anyone but you."
               : "Upgrade to Pro or Team to sync your vault across devices with zero-knowledge encryption."}
-          </p>
-        </div>
-      )}
-
-      {/* Section 3: Chat History Sync */}
-      {user && authMode === 'authenticated' && (
-        <div className="pt-4 border-t border-stroke space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <MessageIcon size={16} className={chatSyncState?.enabled ? "text-conduit-400" : "text-ink-muted"} />
-              <label className="text-sm font-medium">Chat History Sync</label>
-              {!chatCloudSyncEnabled && (
-                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-conduit-600/20 text-conduit-400 rounded">Pro</span>
-              )}
-            </div>
-            <button
-              onClick={async () => {
-                if (!chatCloudSyncEnabled) return;
-                setChatCloudSyncing(true);
-                setChatSyncError(null);
-                try {
-                  if (chatSyncState?.enabled) {
-                    await disableChatSync();
-                  } else {
-                    await enableChatSync();
-                  }
-                } catch (err) {
-                  const msg = err instanceof Error ? err.message : "Failed to toggle chat sync";
-                  setChatSyncError(msg);
-                } finally {
-                  setChatCloudSyncing(false);
-                }
-              }}
-              disabled={chatCloudSyncing || !chatCloudSyncEnabled}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                chatSyncState?.enabled ? "bg-conduit-600" : "bg-well"
-              } ${!chatCloudSyncEnabled ? "opacity-50 cursor-not-allowed" : ""}`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  chatSyncState?.enabled ? "translate-x-6" : "translate-x-1"
-                }`}
-              />
-            </button>
-          </div>
-
-          {chatSyncState?.enabled && (
-            <>
-              <div className="flex items-center justify-between text-xs text-ink-muted">
-                <span>
-                  {chatSyncState.status === "synced" && chatSyncState.lastSyncedAt
-                    ? `Last synced: ${new Date(chatSyncState.lastSyncedAt).toLocaleString()}`
-                    : chatSyncState.status === "syncing"
-                    ? "Syncing..."
-                    : chatSyncState.status === "error"
-                    ? `Error: ${chatSyncState.error}`
-                    : "Not synced yet"}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={async () => {
-                    setChatCloudSyncing(true);
-                    setChatSyncError(null);
-                    try { await syncChatNow(); } catch (err) {
-                      const msg = err instanceof Error ? err.message : "Sync failed";
-                      setChatSyncError(msg);
-                    } finally { setChatCloudSyncing(false); }
-                  }}
-                  disabled={chatCloudSyncing}
-                  className="px-3 py-1.5 text-xs bg-raised hover:bg-well rounded disabled:opacity-50"
-                >
-                  {chatCloudSyncing ? "Syncing..." : "Sync Now"}
-                </button>
-                {showDeleteChatCloudConfirm ? (
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={async () => {
-                        setChatSyncError(null);
-                        try {
-                          await deleteChatCloudData();
-                        } catch (err) {
-                          const msg = err instanceof Error ? err.message : "Failed to delete cloud data";
-                          setChatSyncError(msg);
-                        }
-                        setShowDeleteChatCloudConfirm(false);
-                      }}
-                      className="px-2 py-1 text-xs text-white bg-red-600 hover:bg-red-700 rounded"
-                    >
-                      Confirm Delete
-                    </button>
-                    <button
-                      onClick={() => setShowDeleteChatCloudConfirm(false)}
-                      className="px-2 py-1 text-xs hover:bg-raised rounded"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setShowDeleteChatCloudConfirm(true)}
-                    className="px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 rounded"
-                  >
-                    Delete Cloud History
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-
-          {chatSyncError && (
-            <p className="text-xs text-red-400">{chatSyncError}</p>
-          )}
-
-          <p className="text-xs text-ink-muted">
-            {chatCloudSyncEnabled
-              ? "Chat conversations are encrypted before sync. Zero-knowledge — only your master password can decrypt them."
-              : "Upgrade to Pro or Team to sync chat history across devices with zero-knowledge encryption."}
           </p>
         </div>
       )}

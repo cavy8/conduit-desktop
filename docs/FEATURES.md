@@ -213,7 +213,6 @@
 - Debounced automatic backup on vault mutation (5s after last change)
 - Manual "Backup Now" trigger
 - Configurable retention period (default 30 days) with automatic pruning
-- Optional chat history inclusion alongside vault backup
 - Atomic writes (write to .tmp, then rename) for crash safety
 - Backup file list with timestamps, sizes, and per-file delete
 - Periodic prune every 6 hours for long-running sessions
@@ -293,39 +292,26 @@ Conduit AI model — users bring their own agent subscription.
 - Rich message blocks: text (markdown), tool calls, file edits, file creates, shell commands, approval requests
 - Engine availability detection (CLI installed + authenticated checks)
 - Approval flow for agent operations (approve/deny inline in chat)
-- Engine session persistence across app restarts (SQLite-backed)
-- Session resume with stale-session cleanup on failure
 - Default engine setting (persisted in settings, applied on startup)
 - Default working directory for agent sessions
 - Slash commands: `/model`, `/clear`, `/cost`, `/help` with autocomplete popup
 - Per-session token usage tracking (input + output tokens)
 - System messages for command feedback (distinct styling from agent responses)
-- Encrypted engine chat history stored in SQLite, survives app restart
-- Engine conversation cloud sync (tier-gated)
-- History panel for browsing and resuming past engine sessions
-- Read-only mode for expired engine sessions
 - Edit/retry for engine messages (edit user messages or regenerate assistant responses)
   - Claude Code: clears SDK session context and resends from edit point
   - Codex: uses `thread/rollback` to preserve context before the edit point
+- Conversation history is owned by the underlying CLI (Claude Code / Codex) — the desktop app no longer maintains its own duplicate history layer
 
 ### Terminal Mode
 - Launch Claude Code / Codex as native CLI terminals instead of the rich chat interface
 - Configurable font size
 - Same MCP tool access (the agent connects to Conduit via the MCP server just like the rich mode)
 
-### Chat History & Sync
-- Persistent chat storage in encrypted vault
-- Chat history panel with conversation list
-- Conversation pinning
-- Cloud sync of conversations (tier-gated)
-- Last sync timestamp tracking
-
 ### Tier System
 - `cli_agents_enabled`: Claude Code / Codex access (all tiers — under the user's own Anthropic / OpenAI subscription)
 - `mcp_enabled`: MCP tool access (all tiers — Free is daily-quota capped at 50/day)
 - `mcp_daily_quota`: per-day MCP tool call cap (Free = 50, Pro/Team = -1 unlimited)
 - `cloud_sync_enabled`: vault cloud sync across devices (Pro + Team)
-- `chat_cloud_sync_enabled`: engine chat history sync across devices (Pro + Team)
 - `shared_vaults`: multi-user shared vaults (Team only)
 - `is_team_member`: team membership flag (UI/team vault logic only)
 - Cached tier capabilities for offline mode
@@ -656,7 +642,6 @@ Team administration is handled on conduitdesktop.com. The desktop app is team-aw
 
 ### Notifications & Indicators
 - Cloud sync status (vault)
-- Chat sync status
 - Offline mode banner
 - Auto-update notification
 - **Unified toast notification system**: Global `toast.success()`, `toast.error()`, `toast.warning()`, `toast.info()` API

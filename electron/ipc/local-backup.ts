@@ -50,11 +50,9 @@ export function registerLocalBackupHandlers(): void {
     state.localBackup.configure({
       masterPassword: state.currentMasterPassword,
       vaultPath: state.currentVaultPath,
-      chatDbPath: state.chatStore.getDbPath(),
       enabled: true,
       backupPath,
       retentionDays: settings.local_backup_retention_days,
-      includeChat: settings.local_backup_include_chat,
     });
 
     // Rebuild mutation callback to include local backup
@@ -93,22 +91,18 @@ export function registerLocalBackupHandlers(): void {
     state.localBackup.deleteBackup(args.fullPath);
   });
 
-  /** Update retention days and/or include_chat settings. */
+  /** Update retention days. */
   ipcMain.handle('local_backup_update_settings', async (_e, args: {
     retentionDays?: number;
-    includeChat?: boolean;
   }) => {
     const settings = readSettings();
 
     if (args.retentionDays !== undefined) {
       settings.local_backup_retention_days = args.retentionDays;
     }
-    if (args.includeChat !== undefined) {
-      settings.local_backup_include_chat = args.includeChat;
-    }
 
     writeSettings(settings);
-    state.localBackup.updateSettings(args);
+    state.localBackup.updateSettings({ retentionDays: args.retentionDays });
   });
 
   /** Open native folder picker dialog. */
@@ -153,11 +147,9 @@ export function registerLocalBackupHandlers(): void {
       state.localBackup.configure({
         masterPassword: args.masterPassword,
         vaultPath,
-        chatDbPath: state.chatStore.getDbPath(),
         enabled: true,
         backupPath: settings.local_backup_path,
         retentionDays: settings.local_backup_retention_days,
-        includeChat: settings.local_backup_include_chat,
       });
     }
 

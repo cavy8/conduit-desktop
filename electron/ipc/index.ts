@@ -18,7 +18,6 @@ import { registerVncHandlers } from './vnc.js';
 import { registerWebHandlers } from './web.js';
 import { registerAuthHandlers } from './auth.js';
 import { registerCloudSyncHandlers } from './cloud-sync.js';
-import { registerChatCloudSyncHandlers } from './chat-cloud-sync.js';
 import { registerImportHandlers } from './import.js';
 import { registerExportImportHandlers } from './export-import.js';
 import { registerLocalBackupHandlers } from './local-backup.js';
@@ -80,9 +79,6 @@ export function registerIpcHandlers(): void {
 
   // ── Cloud sync commands ────────────────────────────────────────────
   registerCloudSyncHandlers();
-
-  // ── Chat cloud sync commands ────────────────────────────────────────
-  registerChatCloudSyncHandlers();
 
   // ── Import commands ───────────────────────────────────────────────
   registerImportHandlers();
