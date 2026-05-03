@@ -13,7 +13,41 @@ import type { AppState } from '../services/state.js';
 import type { EngineType, ChatEngineEvent, EngineModelInfo } from '../services/ai/engines/engine.js';
 import { readSettings, writeSettings } from './settings.js';
 import { getSocketPath } from '../ipc-server/server.js';
-import { getDataDir } from '../services/env-config.js';
+import { getDataDir, getEnvConfig } from '../services/env-config.js';
+
+/**
+ * Write the canonical project-scoped `.mcp.json` into the in-app agent's
+ * working directory. Called every time we use an auto-created agent dir, so
+ * the file always points at the current build's MCP — old paths from
+ * previous installs (e.g. the predecessor `~/Github/conduit/` repo) get
+ * overwritten transparently. Only ever touches conduit-managed agent dirs;
+ * never user-chosen working directories.
+ */
+function writeAgentMcpConfig(agentDir: string, mcpPath: string): void {
+  const config = {
+    mcpServers: {
+      conduit: {
+        type: 'stdio',
+        command: 'node',
+        args: [mcpPath],
+        env: {
+          CONDUIT_SOCKET_PATH: getSocketPath(),
+          CONDUIT_ENV: getEnvConfig().environment,
+          CONDUIT_INTERNAL_AGENT: '1',
+        },
+      },
+    },
+  };
+  try {
+    fs.writeFileSync(
+      path.join(agentDir, '.mcp.json'),
+      JSON.stringify(config, null, 2),
+      'utf-8',
+    );
+  } catch (err) {
+    console.warn('[engine:ipc] Failed to write agent .mcp.json:', err);
+  }
+}
 
 function getMainWindow(): BrowserWindow | null {
   const windows = BrowserWindow.getAllWindows();
@@ -165,6 +199,9 @@ export function registerEngineHandlers(state: AppState): void {
       } else {
         const agentDir = path.join(getDataDir(), 'agent', engineType);
         fs.mkdirSync(agentDir, { recursive: true });
+        // Refresh the project-scoped MCP config so it always points at the
+        // current build — heals stale paths from previous installs.
+        writeAgentMcpConfig(agentDir, mcpPath);
         workingDirectory = agentDir;
       }
     }

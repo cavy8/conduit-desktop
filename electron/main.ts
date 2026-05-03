@@ -710,6 +710,18 @@ app.whenReady().then(async () => {
     console.warn('[main] Failed to write agent instruction files:', err);
   });
 
+  // Heal stale Conduit MCP entries in ~/.claude.json from prior installs
+  // (best-effort; never blocks startup).
+  try {
+    const { migrateStaleConduitMcpEntries } = await import('./services/mcp-migration.js');
+    const currentMcpPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'mcp', 'dist', 'index.js')
+      : path.resolve(app.getAppPath(), 'mcp', 'dist', 'index.js');
+    migrateStaleConduitMcpEntries(currentMcpPath);
+  } catch (err) {
+    console.warn('[main] MCP migration failed:', err);
+  }
+
   // Kick off FreeRDP build in background (dev only — packaged apps bundle the binary)
   if (isDev) {
     import('./services/rdp/engines/build-helper.js').then(({ startupFreeRdpCheck, watchFreeRdpSources }) => {

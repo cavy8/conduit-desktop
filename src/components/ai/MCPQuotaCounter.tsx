@@ -81,15 +81,14 @@ export default function MCPQuotaCounter({ variant }: Props) {
 
   if (variant === "pill") {
     return (
-      <button
-        onClick={() => invoke("auth_open_pricing")}
-        title={`MCP tool calls used in the last 24h. ${
-          usage.resetAt ? `Oldest call drops off in ${formatReset(usage.resetAt)}.` : ""
-        } Click to upgrade for unlimited.`}
-        className={`px-2 py-0.5 text-[11px] font-medium tabular-nums border rounded transition-colors hover:opacity-80 ${colorClasses(usage, "pill")}`}
+      <span
+        title={`MCP tool calls used in the last 24h.${
+          usage.resetAt ? ` Oldest call drops off in ${formatReset(usage.resetAt)}.` : ""
+        }`}
+        className={`px-2 py-0.5 text-[11px] font-medium tabular-nums border rounded select-none cursor-default ${colorClasses(usage, "pill")}`}
       >
         {usage.count}/{usage.quota} today
-      </button>
+      </span>
     );
   }
 
