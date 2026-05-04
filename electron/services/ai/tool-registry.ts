@@ -54,13 +54,13 @@ export const TOOL_REGISTRY: ToolRegistryEntry[] = [
   {
     name: 'terminal_read_pane',
     category: 'read',
-    description: 'Read the current terminal buffer content',
+    description:
+      'Read the current terminal buffer content. The buffer is a continuous scrollback — pass a higher `lines` value to retrieve more history.',
     parameters: {
       type: 'object',
       properties: {
         connection_id: { type: 'string', description: 'UUID of the connection/session' },
-        lines: { type: 'number', description: 'Number of lines to read (default: 50)' },
-        include_scrollback: { type: 'boolean', description: 'Include scrollback buffer (default: false)' },
+        lines: { type: 'number', description: 'Number of lines from the tail of the buffer to read (default: 50)' },
       },
       required: ['connection_id'],
     },
@@ -99,7 +99,7 @@ export const TOOL_REGISTRY: ToolRegistryEntry[] = [
       required: [],
     },
     ipcType: 'LocalShellCreate',
-    defaults: { shell_type: null },
+    defaults: { shell_type: null, working_directory: null },
   },
 
   // ─── Connection tools ─────────────────────────────────────────────────
@@ -817,6 +817,58 @@ export const TOOL_REGISTRY: ToolRegistryEntry[] = [
     },
     ipcType: 'DocumentUpdate',
     argRenames: { entry_id: 'id' },
+  },
+  {
+    name: 'entry_list',
+    category: 'read',
+    description: 'List vault entries, optionally filtered by entry_type, folder_id, or tags. Returns metadata only.',
+    parameters: {
+      type: 'object',
+      properties: {
+        entry_type: { type: 'string', description: 'Filter by entry type: "ssh", "rdp", "vnc", "web", "credential", "document", "command"' },
+        folder_id: { type: 'string', description: 'Filter to entries inside this folder UUID' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Filter to entries that have ALL of these tags' },
+        limit: { type: 'number', description: 'Maximum number of entries to return' },
+      },
+      required: [],
+    },
+    ipcType: 'EntryList',
+    defaults: { entry_type: null, folder_id: null, tags: null, limit: null },
+  },
+  {
+    name: 'entry_search',
+    category: 'read',
+    description: 'Search vault entries by name or host (case-insensitive substring match). Returns metadata only.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query (matches name and host substrings)' },
+        entry_type: { type: 'string', description: 'Optional filter by entry type' },
+        limit: { type: 'number', description: 'Maximum number of results (default: 50)' },
+      },
+      required: ['query'],
+    },
+    ipcType: 'EntrySearch',
+    defaults: { entry_type: null, limit: null },
+  },
+  {
+    name: 'ssh_key_generate',
+    category: 'credential',
+    description: 'Generate a new SSH key pair and store it as a credential in the vault. Returns the credential_id, fingerprint, and public key. The private key stays encrypted in the vault and is NOT returned by this tool. REQUIRES USER APPROVAL.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Credential name shown in the vault' },
+        type: { type: 'string', description: 'Key type: "ed25519" (recommended), "rsa", or "ecdsa"' },
+        bits: { type: 'number', description: 'For RSA: 2048 or 4096 (default 4096)' },
+        curve: { type: 'string', description: 'For ECDSA: "P-256", "P-384", "P-521" (default P-256)' },
+        comment: { type: 'string', description: 'Comment string embedded in the public key' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Tags for the new credential' },
+      },
+      required: ['name', 'type'],
+    },
+    ipcType: 'SshKeyGenerate',
+    defaults: { bits: null, curve: null, comment: null, tags: [] },
   },
 
   // ─── VNC tools ────────────────────────────────────────────────────────
