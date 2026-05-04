@@ -20,7 +20,11 @@
     "preview": "vite preview",
     "test": "vitest",
     "lint": "eslint src",
-    "postinstall": "patch-package && node -e \"require('fs').rmSync('node_modules/.vite',{recursive:true,force:true})\" && npx @electron/rebuild --only better-sqlite3,node-pty,koffi,sharp"
+    "postinstall": "patch-package && node -e \"require('fs').rmSync('node_modules/.vite',{recursive:true,force:true})\" && npx @electron/rebuild --only better-sqlite3,node-pty,koffi,sharp",
+    "supabase:start": "cd ../conduit && supabase start",
+    "supabase:stop": "cd ../conduit && supabase stop",
+    "supabase:restart": "cd ../conduit && supabase stop && supabase start",
+    "supabase:status": "cd ../conduit && supabase status"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.45",
