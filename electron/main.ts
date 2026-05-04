@@ -92,11 +92,19 @@ function processDeepLink(url: string) {
     });
   }
 
-  // Focus the main window
+  // Bring the main window to the user's attention.
+  // On macOS, win.focus() pulls the user across Spaces if the window lives
+  // on a different Space — bounce the dock instead so the user notices but
+  // their current Space is preserved. The window is also setVisibleOnAllWorkspaces
+  // so the next user-initiated action surfaces it on the current Space.
   const win = mainWindowRef;
   if (win) {
     if (win.isMinimized()) win.restore();
-    win.focus();
+    if (isMac) {
+      app.dock?.bounce('informational');
+    } else {
+      win.focus();
+    }
   }
 }
 
@@ -150,7 +158,11 @@ function processFileOpen(filePath: string) {
   const win = mainWindowRef;
   if (win) {
     if (win.isMinimized()) win.restore();
-    win.focus();
+    if (isMac) {
+      app.dock?.bounce('informational');
+    } else {
+      win.focus();
+    }
     win.webContents.send('open-vault-file', filePath);
   }
 }
@@ -234,6 +246,13 @@ function createPickerWindow() {
       sandbox: false,
     },
   });
+
+  // macOS: appear on the user's current Space rather than being pinned
+  // to whichever Space it was created on. The picker is launched from a
+  // global shortcut, so it must always show wherever the user is.
+  if (isMac) {
+    pickerWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
 
   if (isDev) {
     pickerWindow.loadURL('http://localhost:1420/picker.html');

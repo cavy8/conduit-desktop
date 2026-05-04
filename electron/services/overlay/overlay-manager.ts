@@ -27,6 +27,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const isDev = !app.isPackaged;
+const isMac = process.platform === 'darwin';
 
 const OVERLAY_WIDTH = 400;
 const OVERLAY_HEIGHT = 500;
@@ -86,6 +87,13 @@ export class OverlayManager {
 
     // Float above the main window and its native views.
     this.overlayWindow.setAlwaysOnTop(true, 'pop-up-menu');
+
+    // macOS: appear on whatever Space the user is currently on. Without this,
+    // creating an alwaysOnTop window can yank the user across Spaces when the
+    // first toast surfaces.
+    if (isMac) {
+      this.overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    }
 
     this.windowReady = false;
 
