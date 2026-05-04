@@ -1,0 +1,36 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.advenimus/conduit-desktop",
+  "description": "Cross-platform SSH/RDP/VNC/web connection manager with a built-in MCP server. Exposes 60+ tools to Claude Code or Codex — execute commands in SSH sessions, screenshot and interact with RDP/VNC desktops, drive web sessions, and manage credentials with approval prompts. Runs over a local Unix socket; nothing leaves your machine.",
+  "repository": {
+    "url": "https://github.com/advenimus/conduit-desktop",
+    "source": "github"
+  },
+  "version": "0.12.5",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@advenimus/conduit-mcp",
+      "version": "0.12.5",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "CONDUIT_SOCKET_PATH",
+          "description": "Path to the Conduit Unix socket (macOS: ~/Library/Application Support/conduit/conduit.sock)",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "CONDUIT_ENV",
+          "description": "Environment: 'production' for the shipped app, 'preview' for dev builds",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
