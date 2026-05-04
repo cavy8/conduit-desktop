@@ -1,7 +1,7 @@
 # Conduit Features
 
 > **Auto-maintained**: This document is updated whenever a new feature is implemented.
-> Last updated: 2026-03-30
+> Last updated: 2026-05-03
 
 ---
 
@@ -162,9 +162,10 @@
 ### Entry Organization
 - Hierarchical folder structure (unlimited depth)
 - Move entries between folders
+- **Nested entries**: Any entry can be nested under another entry — e.g. drop a credential onto a web session, an SSH command under a host, a document under a project. Children promote to the parent's container when the parent is deleted, so nothing is orphaned.
 - **Multi-select**: Ctrl/Cmd+Click to select multiple entries and folders
-- **Batch drag-and-drop**: Drag multiple selected items into a folder at once, with "N items" badge on drag
-- Circular reference protection (cannot drag a folder into its own descendant)
+- **Batch drag-and-drop**: Drag multiple selected items into a folder (or onto a parent entry) at once, with "N items" badge on drag
+- Circular reference protection (cannot drag a folder into its own descendant, or an entry under itself)
 - Team vault permission enforcement on batch moves (insufficient-permission items skipped with toast)
 - Root drop zone below tree for moving items to top level
 - **Recursive folder deletion**: Deleting a folder deletes all its contents (subfolders + entries) with a confirmation dialog showing the total item count
@@ -367,32 +368,25 @@ Conduit AI model — users bring their own agent subscription.
 Standalone MCP server process exposes Conduit tools to AI agents (Claude Code, etc.).
 
 ### Tool Categories
-- **Terminal**: execute commands, read pane buffer, send keys, create local shell
-- **RDP**: screenshot, click, type, send key (press/down/up), mouse move, drag, scroll, resize (RDPEDISP), get dimensions
-- **VNC**: screenshot, click, type, send key (press/down/up), mouse move, drag, scroll, get dimensions
-- **Web**: screenshot, read content, navigate, click, type, send key (press/down/up), mouse move, drag, scroll, get dimensions, click element (CSS selector), fill input (CSS selector), get interactive elements, execute JavaScript
+- **Terminal**: execute commands, read pane buffer (continuous scrollback — pass `lines` for tail size), send keys, create local shell with optional `working_directory`
+- **RDP**: screenshot (returns native + image dims atomically), click, type, send key (press/down/up), mouse move, drag, scroll, resize (RDPEDISP), get dimensions
+- **VNC**: screenshot (returns native dims atomically), click, type, send key (press/down/up), mouse move, drag, scroll, get dimensions
+- **Web**: screenshot (returns viewport + image dims atomically), read content, navigate (with `wait_until` = `load`/`domcontentloaded`/`networkidle`), click, type, send key (press/down/up), mouse move, drag, scroll, get dimensions, click element (CSS selector), fill input (CSS selector), get interactive elements, execute JavaScript
 - **Web Tab Management**: list tabs, create tab, close tab, switch tab, go back, go forward, reload — enables AI agents to manage multiple browser tabs per web session
-- **Credentials**: list, create, read (with approval), delete
-- **Connections**: list, open (SSH/RDP/VNC), close
-- **Entry**: get metadata for any vault entry with optional notes (!!secret!! values auto-redacted), update entry notes
-- **Document**: read, create, and update markdown document entries (!!secret!! values auto-redacted on read; write tools require user approval per agent instructions)
+- **Credentials**: list, create, read (with approval), delete, generate SSH key pair (`ssh_key_generate` — generates ed25519/RSA/ECDSA, stores encrypted in vault, returns only the public key + fingerprint)
+- **Connections**: list (active and saved), open (SSH/RDP/VNC), close (also drops cached coordinate scale factors so a reopen under the same id can't reuse stale scale)
+- **Entry**: get metadata for any vault entry with optional notes (!!secret!! values auto-redacted), update entry notes, list entries (filter by `entry_type` / `folder_id` / `tags`), search entries (case-insensitive substring on name and host)
+- **Document**: read, create, and update markdown document entries (!!secret!! values auto-redacted on read)
 
 ### Safety & Controls
-- **Universal tool approval gate**: Every MCP tool call requires explicit user approval before execution
-  - Covers all execution paths: built-in AI chat, Claude Code, and Codex agents
-  - Per-tool "Always allow" checkbox to skip future prompts for trusted tools
-  - Category-based color-coded badges (read, execute, write, navigate, credential, connection)
-  - Collapsible argument preview in approval dialog with JSON formatting
-  - Sensitive argument masking (passwords, private keys, TOTP secrets shown as `********`)
-  - Queue management for concurrent approval requests with "1 of N" counter
-  - 120-second auto-deny timeout for unattended prompts
-  - Special warning banner for credential access tools
-  - Settings UI: master enable/disable toggle at Settings > AI > Tool Approvals
-  - Always-allowed tools management: grouped by category with individual remove and "Remove All"
-  - Enabled by default for maximum security; disable globally to skip all prompts
-- Per-tool rate limiting (token bucket algorithm)
-- Audit logging of all tool invocations
-- Standalone operation fallback (works if main app disconnects)
+- **Local-socket isolation**: MCP server speaks over a Unix socket (or named pipe on Windows) created with `0o600` permissions — only the user that owns the Conduit process can connect. Nothing is exposed over the network.
+- **Per-tool rate limiting**: Token-bucket limits sized per tool (e.g. screenshots 30/min, click/type 60/min, ssh_key_generate 6/min). Every registered tool has an explicit limit; nothing falls through to a generic default.
+- **Daily quota enforcement**: Free tier capped at 50 tool calls / day, enforced inside the MCP process. Pro and Team get unlimited. Quota state lives at `{userData}/conduit[-dev]/mcp-quota.json`.
+- **Tier-aware gatekeeper**: IPC server only accepts connections when `mcp_enabled` is true (or in local mode). Socket file is removed on stop; defense-in-depth tier check on every IPC request.
+- **Credential approval**: `credential_read` still requires explicit user approval with a `purpose` reason — this is the one tool that reveals raw secrets, so the approval dialog is preserved.
+- **Audit logging**: Every tool invocation (success, error, rate-limited, quota-exceeded) is logged with timing, args summary, and caller.
+- **Secret redaction**: `!!secret!!…!!secret!!` blocks in entry notes and document content are redacted to `********` before being returned by `entry_info` / `document_read`.
+- Standalone operation fallback (MCP server stays alive if the main app's connection blips — reconnects on next request)
 
 ### External Agent Instructions (Auto-Generated)
 - Auto-generates `~/.claude/CLAUDE.md` for Claude Code with MCP setup instructions and tool reference
