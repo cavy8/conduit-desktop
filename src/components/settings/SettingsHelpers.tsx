@@ -13,7 +13,6 @@ export interface Settings {
   sidebar_mode: "pinned" | "auto";
   default_engine: "claude-code" | "codex";
   default_working_directory: string | null;
-  terminal_mode: boolean;
   ui_scale: number;
   default_web_engine: "auto" | "chromium" | "webview2";
   session_defaults_rdp: RdpGlobalDefaults;

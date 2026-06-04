@@ -43,7 +43,6 @@ export default function SettingsDialog({ onClose, initialTab }: SettingsDialogPr
     sidebar_mode: "pinned",
     default_engine: "claude-code",
     default_working_directory: null,
-    terminal_mode: false,
     ui_scale: 1,
     default_web_engine: "auto",
     session_defaults_rdp: { ...HARDCODED_RDP_DEFAULTS },
@@ -88,11 +87,6 @@ export default function SettingsDialog({ onClose, initialTab }: SettingsDialogPr
       // Apply default engine setting to the store — only if it actually changed
       if (settings.default_engine && settings.default_engine !== originalSettingsRef.current?.default_engine) {
         useAiStore.getState().setActiveEngine(settings.default_engine);
-      }
-
-      // Apply terminal mode setting to the store — only if it actually changed
-      if (settings.terminal_mode !== originalSettingsRef.current?.terminal_mode) {
-        useAiStore.getState().setTerminalMode(settings.terminal_mode);
       }
 
       onClose();

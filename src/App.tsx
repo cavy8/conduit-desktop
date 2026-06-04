@@ -270,23 +270,6 @@ function App() {
         if (!useAiStore.getState().tierCapabilities) {
           await store.loadCachedTier();
         }
-        return; // Skip model fetch if tier fetch failed
-      }
-
-      try {
-        const appSettings = await invoke<{
-          default_engine?: 'claude-code' | 'codex';
-          terminal_mode?: boolean;
-        }>("settings_get");
-        // Terminal mode is a persistent UX preference — restore it always.
-        if (appSettings.terminal_mode) {
-          store.setTerminalMode(true);
-        }
-        // Note: default_engine is intentionally NOT auto-applied here.
-        // The chat panel shows a "Select an engine" prompt on first open
-        // each session, so the user always makes an explicit choice.
-      } catch {
-        // Settings read failed — continue with defaults
       }
     };
     setup();

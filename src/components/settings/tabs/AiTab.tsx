@@ -5,7 +5,7 @@ import McpSetupDialog from "../../ai/McpSetupDialog";
 import MCPQuotaCounter from "../../ai/MCPQuotaCounter";
 import { EngineStatusRow } from "../SettingsHelpers";
 import type { TabProps } from "../SettingsHelpers";
-import { FolderIcon } from "../../../lib/icons";
+import { FolderIcon, PlugIcon } from "../../../lib/icons";
 
 export default function AiTab({ settings, setSettings }: TabProps) {
   const tierCapabilities = useAiStore((s) => s.tierCapabilities);
@@ -76,51 +76,42 @@ export default function AiTab({ settings, setSettings }: TabProps) {
 
       <div className="flex items-center justify-between">
         <div>
-          <label className="text-sm font-medium">Terminal Mode</label>
+          <label className="text-sm font-medium">MCP Server Setup</label>
           <p className="text-xs text-ink-muted mt-0.5">
-            Launch Claude Code and Codex as CLI terminals instead of the rich chat interface.
+            Show the commands to connect Claude Code and Codex to Conduit's MCP server.
           </p>
         </div>
         <button
-          onClick={() => {
-            const newValue = !settings.terminal_mode;
-            setSettings({ ...settings, terminal_mode: newValue });
-            if (newValue) setShowMcpSetup(true);
-          }}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
-            settings.terminal_mode ? "bg-conduit-600" : "bg-well"
-          }`}
+          onClick={() => setShowMcpSetup(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-raised hover:bg-well rounded flex-shrink-0"
         >
-          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-            settings.terminal_mode ? "translate-x-6" : "translate-x-1"
-          }`} />
+          <PlugIcon size={14} />
+          Show setup commands
         </button>
       </div>
 
-      {settings.terminal_mode && (
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium">Terminal Font Size</label>
-            <span className="text-sm text-ink-muted tabular-nums">{settings.cli_font_size}px</span>
-          </div>
-          <input
-            type="range"
-            min={10}
-            max={24}
-            value={settings.cli_font_size}
-            onChange={(e) => {
-              const size = parseInt(e.target.value);
-              setSettings({ ...settings, cli_font_size: size });
-              document.dispatchEvent(new CustomEvent("conduit:terminal-font-size-change", { detail: { fontSize: size } }));
-            }}
-            className="w-full accent-conduit-500"
-          />
-          <div className="flex justify-between text-[10px] text-ink-faint mt-1">
-            <span>10px</span>
-            <span>24px</span>
-          </div>
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-sm font-medium">Terminal Font Size</label>
+          <span className="text-sm text-ink-muted tabular-nums">{settings.cli_font_size}px</span>
         </div>
-      )}
+        <input
+          type="range"
+          min={10}
+          max={24}
+          value={settings.cli_font_size}
+          onChange={(e) => {
+            const size = parseInt(e.target.value);
+            setSettings({ ...settings, cli_font_size: size });
+            document.dispatchEvent(new CustomEvent("conduit:terminal-font-size-change", { detail: { fontSize: size } }));
+          }}
+          className="w-full accent-conduit-500"
+        />
+        <div className="flex justify-between text-[10px] text-ink-faint mt-1">
+          <span>10px</span>
+          <span>24px</span>
+        </div>
+      </div>
 
       <div className="pt-3 border-t border-stroke space-y-2">
         <label className="block text-sm font-medium mb-2">Engine Status</label>

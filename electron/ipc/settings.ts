@@ -74,8 +74,6 @@ export interface AppSettings {
   cached_tier_capabilities?: Record<string, unknown>;
   cached_tier_timestamp?: string;
   cached_user_email?: string;
-  // Terminal mode for CLI agents
-  terminal_mode: boolean;
   // Local backup settings
   local_backup_enabled: boolean;
   local_backup_path: string | null;
@@ -122,7 +120,6 @@ const defaultSettings: AppSettings = {
   sidebar_mode: 'pinned',
   default_engine: 'claude-code',
   default_working_directory: null,
-  terminal_mode: false,
   local_backup_enabled: false,
   local_backup_path: null,
   local_backup_retention_days: 30,
@@ -170,6 +167,10 @@ export function readSettings(): AppSettings {
     // Remove stale local_backup_include_chat (chat history was removed)
     if ('local_backup_include_chat' in parsed) {
       delete (parsed as Record<string, unknown>).local_backup_include_chat;
+    }
+    // Remove stale terminal_mode (CLI agents are now always native terminals)
+    if ('terminal_mode' in parsed) {
+      delete (parsed as Record<string, unknown>).terminal_mode;
     }
     // Migrate: populate session_defaults_web.engine from legacy default_web_engine
     if (!raw.session_defaults_web && raw.default_web_engine) {

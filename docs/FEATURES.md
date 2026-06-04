@@ -281,9 +281,9 @@
 ## AI & Chat
 
 Conduit ships with a unified engine architecture that hosts external CLI
-agents (Claude Code, Codex) in a rich chat UI and exposes all Conduit
+agents (Claude Code, Codex) as native terminals and exposes all Conduit
 capabilities to those agents via an MCP server. There is no built-in
-Conduit AI model — users bring their own agent subscription.
+Conduit AI model. Users bring their own agent subscription.
 
 ### Engine Architecture
 - Two engines: **Claude Code** (Anthropic) and **Codex** (OpenAI), each running under the user's own subscription
@@ -303,10 +303,10 @@ Conduit AI model — users bring their own agent subscription.
   - Codex: uses `thread/rollback` to preserve context before the edit point
 - Conversation history is owned by the underlying CLI (Claude Code / Codex) — the desktop app no longer maintains its own duplicate history layer
 
-### Terminal Mode
-- Launch Claude Code / Codex as native CLI terminals instead of the rich chat interface
-- Configurable font size
-- Same MCP tool access (the agent connects to Conduit via the MCP server just like the rich mode)
+### CLI Agent Terminals
+- Claude Code / Codex always launch as native CLI terminals (the rich chat interface and its toggle have been retired)
+- Configurable terminal font size
+- MCP tool access: the agent connects to Conduit via the MCP server. Settings > AI includes an "MCP Server Setup" button that shows the exact `claude mcp add` / `codex mcp add` commands to register Conduit's MCP server in your project
 
 ### Tier System
 - `cli_agents_enabled`: Claude Code / Codex access (all tiers — under the user's own Anthropic / OpenAI subscription)

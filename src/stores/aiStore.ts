@@ -78,9 +78,6 @@ interface AiState {
   setLocalModeTier: () => void;
   loadCachedTier: () => Promise<void>;
 
-  // Terminal mode actions
-  setTerminalMode: (enabled: boolean) => void;
-
   // Engine actions
   setActiveEngine: (type: EngineType) => void;
   checkEngineAvailability: () => Promise<void>;
@@ -145,11 +142,13 @@ export const useAiStore = create<AiState>((set, get) => ({
   showModelPicker: false,
   engineModelOptions: [],
   pendingEngineModel: null,
-  terminalMode: false,
+  terminalMode: true,
 
   resetConversationState: () => set({
-    // NOTE: activeEngineType and terminalMode are intentionally NOT reset here.
-    // They are user preferences persisted in settings.json and should survive vault switches.
+    // NOTE: activeEngineType is intentionally NOT reset here. It is a user
+    // preference persisted in settings.json and should survive vault switches.
+    // terminalMode is a fixed default (CLI agents always run as native
+    // terminals), so it is also left untouched.
     engineSessions: [],
     activeEngineSessionId: null,
     engineMessages: [],
@@ -197,10 +196,6 @@ export const useAiStore = create<AiState>((set, get) => ({
       get().setLocalModeTier();
     }
   },
-
-  // ── Terminal mode ──────────────────────────────────────────────────────
-
-  setTerminalMode: (enabled) => set({ terminalMode: enabled }),
 
   // ── Engine actions ──────────────────────────────────────────────────────
 

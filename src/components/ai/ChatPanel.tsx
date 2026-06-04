@@ -136,11 +136,8 @@ export default function ChatPanel() {
     initEngineModelRefreshListener();
 
     // Sync AI preferences from persisted settings (survives vault switches)
-    invoke<{ default_engine?: string; terminal_mode?: boolean; engine_picker_completed?: boolean }>('settings_get').then((s) => {
+    invoke<{ default_engine?: string; engine_picker_completed?: boolean }>('settings_get').then((s) => {
       const store = useAiStore.getState();
-      if (s.terminal_mode !== undefined && s.terminal_mode !== store.terminalMode) {
-        store.setTerminalMode(s.terminal_mode);
-      }
       if (s.default_engine && s.default_engine !== store.activeEngineType) {
         store.setActiveEngine(s.default_engine as EngineType);
       }
