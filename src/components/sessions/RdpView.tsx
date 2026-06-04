@@ -16,6 +16,13 @@ interface DirtyRegion {
 
 interface RdpFramePayload {
   sessionId: string;
+  /**
+   * Authoritative framebuffer resolution this frame was painted at. The canvas
+   * intrinsic size must equal these — otherwise native-coordinate regions clip
+   * to the top-left of a too-small canvas, which renders as a zoomed crop.
+   */
+  width?: number;
+  height?: number;
   regions: DirtyRegion[];
 }
 
@@ -48,6 +55,9 @@ export default function RdpView({ sessionId, entryId: _entryId, isActive = true,
   const [scale, setScale] = useState(1);
   const scaleRef = useRef(scale);
   scaleRef.current = scale;
+  // Guards against re-requesting full frames every frame while a canvas resize
+  // (triggered by framebuffer/canvas drift) is still propagating through React.
+  const resyncTargetRef = useRef<string>("");
   const [cursorStyle, setCursorStyle] = useState<string>("default");
   const isConnected = useRef(status === "connected");
   const [error, setError] = useState<string | null>(connectionError ?? null);
@@ -294,24 +304,48 @@ export default function RdpView({ sessionId, entryId: _entryId, isActive = true,
         unlisten = await listen<RdpFramePayload>(
           "rdp:frame",
           (event) => {
-            if (event.payload.sessionId === sessionId && canvasRef.current) {
-              const ctx = canvasRef.current.getContext("2d", {
-                willReadFrequently: false,
-                alpha: false,
-              });
+            if (event.payload.sessionId !== sessionId || !canvasRef.current) return;
+            const canvas = canvasRef.current;
 
-              if (ctx) {
-                // Direct rendering - original working code
-                for (const region of event.payload.regions) {
-                  const bytes = region.data as Uint8Array;
-                  const clamped = new Uint8ClampedArray(
-                    bytes.buffer as ArrayBuffer,
-                    bytes.byteOffset,
-                    bytes.byteLength
-                  );
-                  const imageData = new ImageData(clamped, region.width, region.height);
-                  ctx.putImageData(imageData, region.x, region.y);
-                }
+            // The backend stamps every frame with the framebuffer's true
+            // resolution. If the canvas intrinsic size has drifted from it
+            // (a dropped/raced rdp:resize, or a server-side GFX surface resize),
+            // painting native-coordinate regions into a too-small canvas clips
+            // them to the top-left — the zoomed crop. Re-sync the canvas to the
+            // authoritative size and pull one clean full frame instead of
+            // clipping. This both grows and shrinks the canvas correctly.
+            const pw = event.payload.width;
+            const ph = event.payload.height;
+            if (pw && ph && (pw !== canvas.width || ph !== canvas.height)) {
+              const target = `${pw}x${ph}`;
+              if (resyncTargetRef.current !== target) {
+                resyncTargetRef.current = target;
+                setRdpWidth(pw);
+                setRdpHeight(ph);
+                useSessionStore.getState().updateSessionMetadata(sessionId, {
+                  rdpWidth: pw,
+                  rdpHeight: ph,
+                });
+                invoke("rdp_request_frame", { sessionId }).catch(() => {});
+              }
+              return;
+            }
+            resyncTargetRef.current = "";
+
+            const ctx = canvas.getContext("2d", {
+              willReadFrequently: false,
+              alpha: false,
+            });
+            if (ctx) {
+              for (const region of event.payload.regions) {
+                const bytes = region.data as Uint8Array;
+                const clamped = new Uint8ClampedArray(
+                  bytes.buffer as ArrayBuffer,
+                  bytes.byteOffset,
+                  bytes.byteLength
+                );
+                const imageData = new ImageData(clamped, region.width, region.height);
+                ctx.putImageData(imageData, region.x, region.y);
               }
             }
           }

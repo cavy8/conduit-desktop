@@ -808,6 +808,10 @@ export class RdpSession {
     const data = this.frameBuffer.toRgba();
     this.window.webContents.send('rdp:frame', {
       sessionId: this.id,
+      // Authoritative framebuffer resolution — the renderer sizes its canvas
+      // to this so native-coordinate regions never clip into a stale canvas.
+      width,
+      height,
       regions: [{ x: 0, y: 0, width, height, data }],
     });
   }
@@ -931,15 +935,20 @@ export class RdpSession {
         const data = this.frameBuffer.toRgba();
         this.window.webContents.send('rdp:frame', {
           sessionId: this.id,
+          width,
+          height,
           regions: [{ x: 0, y: 0, width, height, data }],
         });
       } else {
         // Merge adjacent regions to reduce IPC overhead
         const mergedRegions = this.mergeRegions(this.pendingRegions);
 
-        // Send merged regions
+        // Send merged regions. width/height carry the authoritative framebuffer
+        // resolution so the renderer can detect canvas/framebuffer drift.
         this.window.webContents.send('rdp:frame', {
           sessionId: this.id,
+          width,
+          height,
           regions: mergedRegions,
         });
       }
