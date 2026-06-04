@@ -1,5 +1,6 @@
 import { app, BaseWindow, BrowserWindow, globalShortcut, KeyboardEvent as ElectronKeyboardEvent, Menu, MenuItem, Tray, nativeImage, nativeTheme, ipcMain, shell, screen } from 'electron';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import fixPath from 'fix-path';
 import { registerIpcHandlers } from './ipc/index.js';
@@ -22,6 +23,24 @@ const isDev = !app.isPackaged;
 // doesn't include user-installed CLI locations (/opt/homebrew/bin, ~/.local/bin, etc.).
 // This must run before any engine availability checks (e.g. `claude --version`).
 fixPath();
+
+// Backfill process.env.SHELL with the user's login shell when it is missing.
+// When launched from Finder/Dock on macOS, $SHELL is frequently unset, which
+// makes local-shell sessions fall back to bash instead of the user's real
+// login shell (e.g. /bin/zsh). os.userInfo().shell reads the passwd database
+// and returns the login shell even when $SHELL is unset. On Windows
+// os.userInfo().shell is null, so the non-empty-string guard skips it. We never
+// override an already-set SHELL.
+if (!process.env.SHELL) {
+  try {
+    const loginShell = os.userInfo().shell;
+    if (typeof loginShell === 'string' && loginShell.length > 0) {
+      process.env.SHELL = loginShell;
+    }
+  } catch {
+    // os.userInfo() can throw on systems with no passwd entry; ignore.
+  }
+}
 
 // Suppress Chromium's verbose native logging (e.g. ssl_client_socket_impl.cc
 // errors that fire for every sub-resource on sites with untrusted certs).

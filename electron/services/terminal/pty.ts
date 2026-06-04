@@ -21,6 +21,19 @@ export interface LocalPty {
   kill(): void;
 }
 
+/**
+ * Read the user's login shell from the passwd database.
+ * Returns undefined on error (e.g. no passwd entry) or when null (Windows).
+ */
+function getLoginShell(): string | undefined {
+  try {
+    const shell = os.userInfo().shell;
+    return typeof shell === 'string' && shell.length > 0 ? shell : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Resolve the shell executable and args from a ShellType. */
 function resolveShell(shellType: ShellType): { file: string; args: string[] } {
   const isWindows = os.platform() === 'win32';
@@ -39,8 +52,10 @@ function resolveShell(shellType: ShellType): { file: string; args: string[] } {
       if (isWindows) {
         return { file: 'powershell.exe', args: ['-NoLogo'] };
       }
-      // Use $SHELL or fall back to bash
-      return { file: process.env.SHELL || 'bash', args: [] };
+      // Prefer $SHELL, then the login shell from the passwd database
+      // (robust when $SHELL is unset, e.g. launched from Finder/Dock),
+      // then fall back to bash.
+      return { file: process.env.SHELL || getLoginShell() || 'bash', args: [] };
   }
 }
 
