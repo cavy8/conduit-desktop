@@ -86,6 +86,7 @@ export function defaultRateLimits(): Map<string, ToolRateLimit> {
   // Connection tools
   limits.set('connection_list', { requestsPerMinute: 60, burst: 10 });
   limits.set('connection_open', { requestsPerMinute: 30, burst: 5 });
+  limits.set('connection_open_entry', { requestsPerMinute: 30, burst: 5 });
   limits.set('connection_close', { requestsPerMinute: 30, burst: 5 });
 
   // Entry / document tools

@@ -91,6 +91,7 @@ import {
 import {
   connectionListDefinition, connectionList,
   connectionOpenDefinition, connectionOpen,
+  connectionOpenEntryDefinition, connectionOpenEntry,
   connectionCloseDefinition, connectionClose,
 } from './tools/connection.js';
 
@@ -225,6 +226,7 @@ function buildToolRegistry(): Map<string, ToolEntry> {
   // Connections
   add(connectionListDefinition(), (client) => connectionList(client));
   add(connectionOpenDefinition(), connectionOpen as ToolHandler);
+  add(connectionOpenEntryDefinition(), connectionOpenEntry as ToolHandler);
   add(connectionCloseDefinition(), connectionClose as ToolHandler);
 
   // Command

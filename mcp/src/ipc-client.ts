@@ -24,6 +24,7 @@ export type IpcRequest =
   | { type: 'RequestCredentialApproval'; payload: { credential_id: string; purpose: string } }
   | { type: 'ConnectionList'; payload: Record<string, never> }
   | { type: 'ConnectionOpen'; payload: { connection_type: string; host: string; port: number; credential_id: string | null; username: string | null; password: string | null; ssh_auth_method?: string | null } }
+  | { type: 'ConnectionOpenEntry'; payload: { entry_id: string; ssh_auth_method: string | null } }
   | { type: 'ConnectionClose'; payload: { id: string } }
   | { type: 'RdpScreenshot'; payload: { connection_id: string; format: string; quality: number; region: [number, number, number, number] | null; max_width: number | null } }
   | { type: 'RdpClick'; payload: { connection_id: string; x: number; y: number; button: string; double_click: boolean } }
@@ -314,6 +315,16 @@ export class ConduitClient {
     return this.sendRequest({
       type: 'ConnectionOpen',
       payload: { connection_type: connectionType, host, port, credential_id: credentialId, username, password, ssh_auth_method: sshAuthMethod },
+    });
+  }
+
+  async connectionOpenEntry(
+    entryId: string,
+    sshAuthMethod: string | null = null,
+  ): Promise<Record<string, unknown>> {
+    return this.sendRequest({
+      type: 'ConnectionOpenEntry',
+      payload: { entry_id: entryId, ssh_auth_method: sshAuthMethod },
     });
   }
 

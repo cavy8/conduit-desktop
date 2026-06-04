@@ -114,7 +114,10 @@ export const TOOL_REGISTRY: ToolRegistryEntry[] = [
   {
     name: 'connection_open',
     category: 'connection',
-    description: 'Open a new connection (SSH, RDP, or VNC)',
+    description:
+      'Open a new connection (SSH, RDP, or VNC) by specifying host/port/credentials manually. ' +
+      'To open a saved vault connection, prefer connection_open_entry, which resolves host, port, ' +
+      'and credentials from the entry by its entry_id.',
     parameters: {
       type: 'object',
       properties: {
@@ -130,6 +133,24 @@ export const TOOL_REGISTRY: ToolRegistryEntry[] = [
     },
     ipcType: 'ConnectionOpen',
     defaults: { port: null, credential_id: null, username: null, password: null },
+  },
+  {
+    name: 'connection_open_entry',
+    category: 'connection',
+    description:
+      'Open a saved connection from the vault by its entry_id. Host, port, and credentials are resolved ' +
+      'from the saved entry server-side. Works for ssh, rdp, and vnc entries. Get entry_id values from ' +
+      'connection_list, entry_list, or entry_search.',
+    parameters: {
+      type: 'object',
+      properties: {
+        entry_id: { type: 'string', description: 'Vault entry ID of the saved ssh/rdp/vnc connection to open' },
+        ssh_auth_method: { type: 'string', description: 'Optional SSH auth method override: "key" or "password"' },
+      },
+      required: ['entry_id'],
+    },
+    ipcType: 'ConnectionOpenEntry',
+    defaults: { ssh_auth_method: null },
   },
   {
     name: 'connection_close',

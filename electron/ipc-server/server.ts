@@ -18,8 +18,13 @@ import { resolveSshAuth, resolveSshAuthSystem } from '../services/ssh/resolve-au
 import type { RdpEngineConfig } from '../services/rdp/engine.js';
 import type { ImageFormat } from '../services/rdp/framebuffer.js';
 import { readSettings } from '../ipc/settings.js';
-import { ensureFreeRdpReady } from '../services/rdp/engines/factory.js';
 import { getSocketPath, isNamedPipe } from '../services/env-config.js';
+import {
+  openSshSession,
+  openRdpSession,
+  openVncSession,
+  buildRdpEngineConfigFromEntry,
+} from './open-session.js';
 
 // ---------- IPC Protocol Types ----------
 
@@ -523,43 +528,13 @@ export async function handleRequest(
               auth = resolveSshAuthSystem();
             }
 
-            const sessionId = await state.terminalManager.createSshSession({
+            const result = await openSshSession(state, {
               host,
               port: port ?? 22,
               auth,
-            });
-            state.terminalManager.startReading(sessionId);
-
-            // Register in MCP connection registry
-            state.mcpConnections.set(sessionId, {
-              session_id: sessionId,
               name: `SSH ${host}`,
-              connection_type: 'ssh',
-              host,
-              port: port ?? 22,
-              status: 'connected',
-              created_at: Date.now(),
             });
-
-            // Notify renderer to create a tab for this MCP-created session
-            const mainWindow = AppState.getInstance().getMainWindow();
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('session:mcp-created', {
-                sessionId,
-                type: 'ssh',
-                title: `SSH ${host}`,
-                host,
-                port: port ?? 22,
-              });
-            }
-
-            return successResponse({
-              session_id: sessionId,
-              connection_type: 'ssh',
-              host,
-              port: port ?? 22,
-              status: 'connected',
-            });
+            return successResponse(result);
           } catch (e) {
             return errorResponse('SSH_ERROR', String(e));
           }
@@ -599,52 +574,8 @@ export async function handleRequest(
               skipCertVerification: true,
             };
 
-            // Ensure FreeRDP helper binary is available (auto-builds if missing)
-            await ensureFreeRdpReady();
-
-            const sessionId = randomUUID();
-            const session = state.rdpManager.create(sessionId, config);
-
-            // Set window for frame events
-            const mainWindow = AppState.getInstance().getMainWindow();
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              session.setWindow(mainWindow);
-            }
-
-            await session.connect();
-
-            // Register in MCP connection registry
-            state.mcpConnections.set(sessionId, {
-              session_id: sessionId,
-              name: `RDP ${host}`,
-              connection_type: 'rdp',
-              host,
-              port: port ?? 3389,
-              status: 'connected',
-              created_at: Date.now(),
-            });
-
-            // Notify renderer to create a tab
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('session:mcp-created', {
-                sessionId,
-                type: 'rdp',
-                title: `RDP ${host}`,
-                host,
-                port: port ?? 3389,
-              });
-            }
-
-            const dims = session.getDimensions();
-            return successResponse({
-              session_id: sessionId,
-              connection_type: 'rdp',
-              host,
-              port: port ?? 3389,
-              status: 'connected',
-              width: dims.width,
-              height: dims.height,
-            });
+            const result = await openRdpSession(state, { config, name: `RDP ${host}` });
+            return successResponse(result);
           } catch (e) {
             return errorResponse('RDP_ERROR', String(e));
           }
@@ -673,48 +604,14 @@ export async function handleRequest(
             const reqUsername = (request.payload as { username?: string }).username;
             if (reqUsername) vncUsername = reqUsername;
 
-            const sessionId = randomUUID();
-            await state.vncManager.create(sessionId, {
+            const result = await openVncSession(state, {
               host,
               port: port ?? 5900,
               password: vncPassword,
               username: vncUsername,
-            });
-            await state.vncManager.connect(sessionId);
-
-            // Register in MCP connection registry
-            state.mcpConnections.set(sessionId, {
-              session_id: sessionId,
               name: `VNC ${host}`,
-              connection_type: 'vnc',
-              host,
-              port: port ?? 5900,
-              status: 'connected',
-              created_at: Date.now(),
             });
-
-            // Notify renderer to create tab — noVNC connects when VncView mounts
-            const mainWindow = AppState.getInstance().getMainWindow();
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('session:mcp-created', {
-                sessionId,
-                type: 'vnc',
-                title: `VNC ${host}`,
-                host,
-                port: port ?? 5900,
-              });
-            }
-
-            // Dimensions not yet known — noVNC connects async in renderer
-            return successResponse({
-              session_id: sessionId,
-              connection_type: 'vnc',
-              host,
-              port: port ?? 5900,
-              status: 'connected',
-              width: 0,
-              height: 0,
-            });
+            return successResponse(result);
           } catch (e) {
             return errorResponse('VNC_ERROR', String(e));
           }
@@ -724,6 +621,130 @@ export async function handleRequest(
           'NOT_IMPLEMENTED',
           `Opening ${connection_type} connection to ${host}:${port} not yet implemented`,
         );
+      }
+
+      case 'ConnectionOpenEntry': {
+        const { entry_id, ssh_auth_method } = request.payload as {
+          entry_id: string;
+          ssh_auth_method?: string | null;
+        };
+
+        const vault = state.getActiveVault();
+        if (!vault.isUnlocked()) {
+          return errorResponse('VAULT_LOCKED', 'Vault is locked — unlock it in the Conduit app first');
+        }
+
+        // Look up the saved entry. getEntry throws when the id is unknown.
+        let entry;
+        try {
+          entry = vault.getEntry(entry_id);
+        } catch {
+          return errorResponse('NOT_FOUND', `Entry not found: ${entry_id}`);
+        }
+
+        if (entry.entry_type !== 'ssh' && entry.entry_type !== 'rdp' && entry.entry_type !== 'vnc') {
+          return errorResponse(
+            'INVALID_TYPE',
+            `Entry "${entry.name}" is a ${entry.entry_type} entry. connection_open_entry only opens ssh, rdp, or vnc connections.`,
+          );
+        }
+
+        if (!entry.host) {
+          return errorResponse('INVALID_ENTRY', `Entry "${entry.name}" has no host configured.`);
+        }
+
+        const host = entry.host;
+        const entryConfig = entry.config ?? {};
+        // Per-entry auth-method override: explicit MCP arg wins, then the SSH
+        // entry's stored config, then the credential's own preference (applied
+        // inside resolveSshAuth).
+        const overrideAuthMethod =
+          ssh_auth_method ?? (entryConfig.ssh_auth_method as string | undefined) ?? null;
+
+        if (entry.entry_type === 'ssh') {
+          try {
+            let auth: SshAuth;
+            if (entry.credential_id) {
+              // Explicit credential reference — use the full credential so its
+              // ssh_auth_method preference is honored. getCredential throws if
+              // the referenced credential no longer exists.
+              let cred: ReturnType<typeof vault.getCredential>;
+              try {
+                cred = vault.getCredential(entry.credential_id);
+              } catch {
+                return errorResponse('CREDENTIAL_NOT_FOUND', `Credential not found: ${entry.credential_id}`);
+              }
+              auth = resolveSshAuth(cred, overrideAuthMethod);
+            } else {
+              // Inline credentials on the entry, or inherited from a parent
+              // entry / folder.
+              const resolved = vault.resolveCredential(entry_id);
+              if (resolved && (resolved.username || resolved.password || resolved.private_key)) {
+                auth = resolveSshAuth(
+                  {
+                    username: resolved.username,
+                    password: resolved.password,
+                    private_key: resolved.private_key,
+                  },
+                  overrideAuthMethod,
+                );
+              } else {
+                auth = resolveSshAuthSystem();
+              }
+            }
+
+            const result = await openSshSession(state, {
+              host,
+              port: entry.port ?? 22,
+              auth,
+              name: entry.name,
+            });
+            return successResponse({ ...result, entry_id, name: entry.name });
+          } catch (e) {
+            return errorResponse('SSH_ERROR', String(e));
+          }
+        }
+
+        if (entry.entry_type === 'rdp') {
+          try {
+            // Mirror the renderer's open-from-entry semantics (entryStore.ts):
+            // use ?? so an explicitly-empty stored value is preserved rather
+            // than skipped, and fall back through credential → entry → default.
+            const resolved = vault.resolveCredential(entry_id);
+            const rdpUsername = resolved?.username ?? entry.username ?? '';
+            const rdpPassword = resolved?.password ?? '';
+            const rdpDomain = resolved?.domain ?? entry.domain ?? undefined;
+
+            const config = buildRdpEngineConfigFromEntry({
+              host,
+              port: entry.port ?? 3389,
+              username: rdpUsername,
+              password: rdpPassword,
+              domain: rdpDomain,
+              entryConfig,
+            });
+
+            const result = await openRdpSession(state, { config, name: entry.name });
+            return successResponse({ ...result, entry_id, name: entry.name });
+          } catch (e) {
+            return errorResponse('RDP_ERROR', String(e));
+          }
+        }
+
+        // vnc
+        try {
+          const resolved = vault.resolveCredential(entry_id);
+          const result = await openVncSession(state, {
+            host,
+            port: entry.port ?? 5900,
+            password: resolved?.password ?? undefined,
+            username: resolved?.username ?? undefined,
+            name: entry.name,
+          });
+          return successResponse({ ...result, entry_id, name: entry.name });
+        } catch (e) {
+          return errorResponse('VNC_ERROR', String(e));
+        }
       }
 
       case 'ConnectionClose': {

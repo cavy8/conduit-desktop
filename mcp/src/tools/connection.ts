@@ -17,7 +17,7 @@ export function connectionListDefinition() {
     description:
       'List all connections (active and saved). Returns id (session ID for terminal/RDP/VNC/web tools) and entry_id (vault entry ID for entry_info, entry_update_notes, document_read tools). ' +
       'Active connections can be used directly with terminal tools. ' +
-      'Saved connections with status "disconnected" must first be opened with connection_open before use.',
+      'Saved connections with status "disconnected" must first be opened with connection_open_entry (pass the entry_id; credentials are resolved server-side) before use.',
     inputSchema: {
       type: 'object' as const,
       properties: {},
@@ -39,7 +39,7 @@ export async function connectionList(client: ConduitClient): Promise<unknown> {
       port: c.port ?? null,
       status: c.status ?? 'unknown',
       ...(c.status === 'disconnected'
-        ? { note: 'Use connection_open with this host/port to connect before using terminal tools' }
+        ? { note: 'Use connection_open_entry with this entry_id to open this saved connection (credentials resolved server-side) before using terminal tools' }
         : {}),
     })),
   };
@@ -50,7 +50,10 @@ export async function connectionList(client: ConduitClient): Promise<unknown> {
 export function connectionOpenDefinition() {
   return {
     name: 'connection_open',
-    description: 'Open a new connection (SSH, RDP, or VNC)',
+    description:
+      'Open a new connection (SSH, RDP, or VNC) by specifying host/port/credentials manually. ' +
+      'To open a connection already saved in the vault, prefer connection_open_entry, which resolves ' +
+      'host, port, and credentials from the saved entry by its entry_id.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -135,6 +138,54 @@ export async function connectionOpen(
     host: args.host,
     port,
     status: connection.status,
+  };
+}
+
+// ---------- connection_open_entry ----------
+
+export function connectionOpenEntryDefinition() {
+  return {
+    name: 'connection_open_entry',
+    description:
+      'Open a saved connection from the vault by its entry_id. Host, port, and credentials are ' +
+      'resolved from the saved entry on the server side — no need to look up or pass credentials. ' +
+      'Works for ssh, rdp, and vnc entries. The vault must be unlocked. ' +
+      'Get entry_id values from connection_list, entry_list, or entry_search.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        entry_id: {
+          type: 'string',
+          description: 'Vault entry ID of the saved ssh/rdp/vnc connection to open',
+        },
+        ssh_auth_method: {
+          type: 'string',
+          description:
+            'Optional SSH auth method override: "key" or "password". Used when the entry\'s credential ' +
+            'has both an SSH key and a password. Defaults to the entry\'s saved preference.',
+        },
+      },
+      required: ['entry_id'],
+    },
+  };
+}
+
+export async function connectionOpenEntry(
+  client: ConduitClient,
+  args: { entry_id: string; ssh_auth_method?: string },
+): Promise<unknown> {
+  const connection = await client.connectionOpenEntry(args.entry_id, args.ssh_auth_method ?? null);
+
+  return {
+    id: connection.session_id ?? connection.id,
+    entry_id: connection.entry_id ?? args.entry_id,
+    name: connection.name ?? null,
+    connection_type: connection.connection_type,
+    host: connection.host ?? null,
+    port: connection.port ?? null,
+    status: connection.status,
+    ...(connection.width !== undefined ? { width: connection.width } : {}),
+    ...(connection.height !== undefined ? { height: connection.height } : {}),
   };
 }
 
