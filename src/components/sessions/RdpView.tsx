@@ -518,7 +518,10 @@ export default function RdpView({ sessionId, entryId: _entryId, isActive = true,
 
       const scaleX = containerWidth / rdpWidth;
       const scaleY = containerHeight / rdpHeight;
-      setScale(Math.min(scaleX, scaleY, 1));
+      // Fit the framebuffer to the container in BOTH directions, allowing
+      // upscale (no 1.0 cap) so a desktop smaller than the viewport — e.g. at
+      // Display Scale > 100% — fills the window instead of letterboxing.
+      setScale(Math.min(scaleX, scaleY));
 
       // Debounced native resize via RDPEDISP
       if (status === "connected") {
@@ -588,10 +591,10 @@ export default function RdpView({ sessionId, entryId: _entryId, isActive = true,
         }).catch(() => {});
       }
 
-      // Also update CSS scale immediately
+      // Also update CSS scale immediately (fit both axes, allow upscale)
       const scaleX = cw / curW;
       const scaleY = ch / curH;
-      setScale(Math.min(scaleX, scaleY, 1));
+      setScale(Math.min(scaleX, scaleY));
     };
 
     let timers: ReturnType<typeof setTimeout>[] = [];
