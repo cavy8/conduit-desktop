@@ -28,9 +28,16 @@ mac:
   category: public.app-category.developer-tools
   icon: build/icons/icon.icns
   darkModeSupport: true
+  # All modern Macs are Apple Silicon — build arm64 only. CI also passes
+  # --mac --arm64; pinning here keeps local `npm run build:mac` arm64 even on a
+  # Rosetta-capable host.
   target:
-    - dmg
-    - zip
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
@@ -46,8 +53,11 @@ mac:
 win:
   icon: build/icons/icon.ico
   artifactName: "${productName}-Setup-${version}.${ext}"
+  # Windows ships x64 only (CI passes --win --x64).
   target:
-    - nsis
+    - target: nsis
+      arch:
+        - x64
   forceCodeSigning: false
   signAndEditExecutable: false
   extraResources:
