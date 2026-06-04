@@ -32,8 +32,30 @@ cp "$BINARY" "$BUNDLE_DIR/"
 
 # ── Recursively discover all non-system dylib dependencies ────────────
 
-# Associative array: original_ref -> bundled_name
-declare -A ALL_DYLIBS
+# Map of original_ref -> bundled_name, emulated with two parallel indexed
+# arrays so the script runs on stock macOS /bin/bash (3.2), which lacks the
+# `declare -A` associative arrays available only in bash 4+. The dependency
+# count is small (dozens), so linear lookups are cheap.
+DYLIB_REFS=()   # keys:   original dependency references (may contain @rpath/, /, .)
+DYLIB_NAMES=()  # values: bundled basenames, index-aligned with DYLIB_REFS
+
+# True if a dependency reference has already been recorded.
+dylib_has_ref() {
+    local key="$1" i
+    for i in "${!DYLIB_REFS[@]}"; do
+        [ "${DYLIB_REFS[$i]}" = "$key" ] && return 0
+    done
+    return 1
+}
+
+# True if a basename is one of the bundled libs (i.e. a recorded value).
+dylib_has_name() {
+    local key="$1" name
+    for name in "${DYLIB_NAMES[@]}"; do
+        [ "$name" = "$key" ] && return 0
+    done
+    return 1
+}
 
 is_system_lib() {
     local path="$1"
@@ -78,7 +100,7 @@ scan_deps() {
         # Skip empty, system libs, and already-processed libs
         [ -z "$dep_ref" ] && continue
         is_system_lib "$dep_ref" && continue
-        [ -n "${ALL_DYLIBS[$dep_ref]+x}" ] && continue
+        dylib_has_ref "$dep_ref" && continue
 
         local dep_name
         dep_name=$(basename "$dep_ref")
@@ -87,7 +109,8 @@ scan_deps() {
         actual=$(resolve_path "$dep_ref")
 
         if [ -n "$actual" ] && [ -f "$actual" ]; then
-            ALL_DYLIBS["$dep_ref"]="$dep_name"
+            DYLIB_REFS+=("$dep_ref")
+            DYLIB_NAMES+=("$dep_name")
             echo "  Found: $dep_ref -> $dep_name ($actual)"
             # Recurse into this dylib's dependencies
             scan_deps "$actual"
@@ -101,14 +124,15 @@ echo "Discovering all dependencies (recursive)..."
 scan_deps "$BINARY"
 
 echo ""
-echo "Total non-system dylibs: ${#ALL_DYLIBS[@]}"
+echo "Total non-system dylibs: ${#DYLIB_REFS[@]}"
 
 # ── Copy all dylibs ──────────────────────────────────────────────────
 
 echo ""
 echo "Copying dylibs..."
-for dep_ref in "${!ALL_DYLIBS[@]}"; do
-    name="${ALL_DYLIBS[$dep_ref]}"
+for i in "${!DYLIB_REFS[@]}"; do
+    dep_ref="${DYLIB_REFS[$i]}"
+    name="${DYLIB_NAMES[$i]}"
     actual=$(resolve_path "$dep_ref")
     if [ -n "$actual" ] && [ -f "$actual" ]; then
         cp "$actual" "$BUNDLE_DIR/$name"
@@ -150,11 +174,7 @@ fi
 echo ""
 echo "Fixing rpaths..."
 
-# Build a set of all bundled basenames for quick lookup
-declare -A BUNDLED_SET
-for name in "${ALL_DYLIBS[@]}"; do
-    BUNDLED_SET["$name"]=1
-done
+# Bundled basenames are looked up via dylib_has_name (the DYLIB_NAMES array).
 
 # Fix a single file: rewrite all references to bundled libs to @loader_path/
 fix_references() {
@@ -171,7 +191,7 @@ fix_references() {
         dep_name=$(basename "$dep_path")
 
         # If this dep is one of our bundled libs and not already @loader_path
-        if [ -n "${BUNDLED_SET[$dep_name]+x}" ] && [[ "$dep_path" != @loader_path/* ]]; then
+        if dylib_has_name "$dep_name" && [[ "$dep_path" != @loader_path/* ]]; then
             install_name_tool -change "$dep_path" "@loader_path/$dep_name" "$file" 2>/dev/null || true
             echo "  $file_name: $dep_path -> @loader_path/$dep_name"
         fi
@@ -199,7 +219,7 @@ fix_references "$BUNDLE_DIR/conduit-freerdp"
 
 # Fix each dylib
 echo "Fixing dylib references..."
-for name in "${ALL_DYLIBS[@]}"; do
+for name in "${DYLIB_NAMES[@]}"; do
     if [ -f "$BUNDLE_DIR/$name" ]; then
         # Set the install name to @loader_path/
         install_name_tool -id "@loader_path/$name" "$BUNDLE_DIR/$name" 2>/dev/null || true
