@@ -5,6 +5,7 @@ import { useSessionStore, type ConnectionStatus } from "../../stores/sessionStor
 import { useSettingsStore } from "../../stores/settingsStore";
 import { toast } from "../common/Toast";
 import { formatFileSize } from "../../lib/format";
+import { friendlyConnectionError } from "../../lib/errorMessages";
 
 interface DirtyRegion {
   x: number;
@@ -853,10 +854,17 @@ export default function RdpView({ sessionId, entryId: _entryId, isActive = true,
 
   // Disconnected with error
   if (error || status === "disconnected") {
+    const friendly = error ? friendlyConnectionError(error, "rdp") : "Disconnected";
+    const showRaw = !!error && friendly !== error;
     return (
-      <div className="h-full w-full flex flex-col items-center justify-center bg-canvas text-ink-muted">
+      <div className="h-full w-full flex flex-col items-center justify-center bg-canvas text-ink-muted px-6">
         <div className="text-red-400 mb-2">Connection Error</div>
-        <div className="text-sm">{error ?? "Disconnected"}</div>
+        <div className="text-sm text-center max-w-md">{friendly}</div>
+        {showRaw && (
+          <div className="text-xs text-ink-faint font-mono mt-2 max-w-md text-center break-all">
+            {error}
+          </div>
+        )}
         {onClose && (
           <button
             onClick={onClose}

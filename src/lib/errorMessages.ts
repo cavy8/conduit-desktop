@@ -16,12 +16,65 @@ const patterns: [RegExp, string][] = [
 ];
 
 /**
- * Maps raw technical error messages to user-friendly descriptions.
- * Falls through to the raw message if no pattern matches.
+ * RDP-specific mappings for the terse error strings the FreeRDP helper reports
+ * (from freerdp_get_last_error_string). These are checked before the generic
+ * patterns when the session is RDP, so the guidance can be tailored to Windows
+ * Remote Desktop (NLA, domains, certificates). Each message stays actionable
+ * and the raw text is still shown beneath it by the error screen.
  */
-export function friendlyConnectionError(raw: string, _type?: SessionType): string {
-  for (const [re, friendly] of patterns) {
-    if (re.test(raw)) return friendly;
+const rdpPatterns: [RegExp, string][] = [
+  // Account password expired (must be changed before sign in).
+  [
+    /password (is )?(expired|certainly expired)|password.*must.*change|PASSWORD_EXPIRED/i,
+    "The account password has expired. Change it on the server, then reconnect.",
+  ],
+  // Account is not permitted to sign in via RDP.
+  [
+    /insufficient privileg|account restriction|access is denied|logon type/i,
+    "This account is not allowed to sign in over Remote Desktop. Add it to the server's Remote Desktop Users group, or use an account that has access.",
+  ],
+  // CredSSP / NLA credential rejection (0x00020009). This is the common
+  // "works on my workgroup box, fails on the domain server" case: when a
+  // domain blocks NTLM and the client connects by IP (no Kerberos SPN), the
+  // server rejects the sign in.
+  [
+    /authentication failure|ERRCONNECT_AUTHENTICATION_FAILED|logon failure|STATUS_LOGON_FAILURE/i,
+    "The server rejected the sign in. Check the username and password. If this is a domain server, set the Domain field and connect using the server's full hostname instead of an IP address. Some domains block NTLM and require Kerberos, which only works when you connect by hostname.",
+  ],
+  // Security negotiation failed (server likely requires NLA, or no common protocol).
+  [
+    /security negotiation|SECURITY_NEGO|negotiation has failed/i,
+    "The server refused the security negotiation. It may require Network Level Authentication (NLA). Try enabling NLA in this connection's security settings.",
+  ],
+  // TLS handshake / certificate problems.
+  [
+    /TLS|certificate|SSL handshake|ERRCONNECT_TLS/i,
+    "The secure (TLS) connection to the server failed. The certificate may be untrusted or the server's security settings may be incompatible. You can enable 'Skip certificate verification' for this connection if you trust the host.",
+  ],
+  // Name resolution.
+  [
+    /\bDNS\b|name (was )?not found|could not be resolved|DNS_NAME_NOT_FOUND/i,
+    "The server's hostname could not be resolved. Check the address, and that DNS or your VPN can reach it.",
+  ],
+  // TCP / transport could not be established.
+  [
+    /transport (connection )?failed|unable to connect|connection (failed|refused)|CONNECT_TRANSPORT_FAILED|CONNECT_FAILED/i,
+    "Could not reach the server. Check that the host and port are correct, the machine is online, and Remote Desktop is enabled. A firewall or VPN may be blocking it.",
+  ],
+];
+
+/**
+ * Maps raw technical error messages to user-friendly descriptions.
+ * RDP sessions consult the RDP-specific table first so the guidance is
+ * tailored to Remote Desktop. Falls through to the raw message if no
+ * pattern matches.
+ */
+export function friendlyConnectionError(raw: string, type?: SessionType): string {
+  const tables = type === "rdp" ? [rdpPatterns, patterns] : [patterns];
+  for (const table of tables) {
+    for (const [re, friendly] of table) {
+      if (re.test(raw)) return friendly;
+    }
   }
   return raw;
 }
