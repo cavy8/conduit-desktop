@@ -110,6 +110,26 @@ export class SshSession extends EventEmitter {
       if (cfg.auth.type === 'password') {
         connectOpts.username = cfg.auth.username;
         connectOpts.password = cfg.auth.password;
+        // Some SSH servers (notably VMware ESXi, and many network/appliance
+        // SSH daemons) only advertise `keyboard-interactive` and do NOT offer
+        // the plain `password` auth method. The OpenSSH CLI transparently
+        // satisfies the password prompt over keyboard-interactive, which is
+        // why `ssh user@host` works while ssh2 reports "All configured
+        // authentication methods failed". ssh2 only attempts
+        // keyboard-interactive when `tryKeyboard` is set, so enable it and
+        // answer the prompts with the same password below.
+        connectOpts.tryKeyboard = true;
+
+        const password = cfg.auth.password;
+        this.client.on(
+          'keyboard-interactive',
+          (_name, _instructions, _lang, prompts, finish) => {
+            // Reply with the password for every prompt the server sends.
+            // ESXi sends a single hidden "Password:" prompt; mapping over
+            // `prompts` also handles servers that issue more than one.
+            finish(prompts.map(() => password));
+          },
+        );
       } else {
         connectOpts.username = cfg.auth.username;
         if (cfg.auth.keyContent) {
