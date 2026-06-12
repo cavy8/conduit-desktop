@@ -116,7 +116,12 @@ jobs:
             platform: darwin
             arch: arm64
             eb_flags: --mac --arm64
-          - os: windows-latest
+          # Pinned to windows-2022 (Visual Studio 2022 / v17). windows-latest
+          # rolled to an image shipping only Visual Studio 18, which node-gyp
+          # and @electron/rebuild don't yet recognize, breaking the native
+          # module rebuild (node-pty/better-sqlite3) with "Could not find any
+          # Visual Studio installation to use". Matches GYP_MSVS_VERSION=2022.
+          - os: windows-2022
             platform: win32
             arch: x64
             eb_flags: --win --x64
