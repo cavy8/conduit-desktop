@@ -3,6 +3,16 @@ productName: Conduit
 directories:
   output: release
 asar: true
+# sharp ships its native addon (@img/sharp-<platform>) and the libvips shared
+# library (@img/sharp-libvips-<platform>) as separate packages. electron-builder
+# only auto-unpacks module dirs that contain a .node file, so the addon gets
+# unpacked but the sidecar libvips .so/.dylib stays sealed inside app.asar. The
+# addon's rpath ($ORIGIN/../../sharp-libvips-<platform>/lib) then can't dlopen it,
+# crashing the app on launch (ERR_DLOPEN_FAILED: libvips-cpp.so... not found —
+# seen on Linux x64, see issue #6). Force both onto the real filesystem.
+asarUnpack:
+  - "**/node_modules/sharp/**"
+  - "**/node_modules/@img/**"
 files:
   - dist/**/*
   - dist-electron/**/*
