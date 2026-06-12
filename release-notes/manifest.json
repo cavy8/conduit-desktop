@@ -2,6 +2,31 @@
   "schema_version": 1,
   "releases": [
     {
+      "version": "0.16.1",
+      "date": "2026-06-12",
+      "title": "Linux Startup Fix & Connection Reliability",
+      "summary": "Fixes a crash that stopped Conduit from launching on Linux, adds SSH support for ESXi-style keyboard-interactive logins, and makes RDP connection errors clearer.",
+      "highlights": [
+        {
+          "text": "**Conduit launches on Linux again** — fixed the native-library crash that prevented startup on Linux x64 (.deb and AppImage).",
+          "category": "fix"
+        },
+        {
+          "text": "**SSH connects to VMware ESXi and similar hosts** — Conduit now falls back to keyboard-interactive authentication when a server only offers that method, instead of failing the login.",
+          "category": "fix"
+        },
+        {
+          "text": "**AI agent MCP setup works reliably** — the generated `claude mcp add` command now registers the Conduit MCP server correctly instead of failing on startup.",
+          "category": "fix"
+        },
+        {
+          "text": "**Clearer RDP connection errors** — failed RDP connections show a specific cause and suggested fix instead of a generic message.",
+          "category": "improvement"
+        }
+      ],
+      "hasMedia": false
+    },
+    {
       "version": "0.16.0",
       "date": "2026-06-04",
       "title": "Native Agent Terminals",
@@ -225,39 +250,6 @@
         },
         {
           "text": "Fixed Windows tray icon — left-click now shows the window properly",
-          "category": "fix"
-        }
-      ],
-      "hasMedia": true
-    },
-    {
-      "version": "0.12.7",
-      "date": "2026-03-26",
-      "title": "Close to Tray & Web Downloads",
-      "summary": "Conduit now stays running when you close the window, and web sessions get proper download management.",
-      "highlights": [
-        {
-          "text": "Close to tray/dock — closing the window hides the app instead of quitting",
-          "category": "feature"
-        },
-        {
-          "text": "Download management for web sessions — browser-like save prompts",
-          "category": "feature"
-        },
-        {
-          "text": "Vault auto-locks and sessions close when window is hidden",
-          "category": "improvement"
-        },
-        {
-          "text": "Fixed SSH key authentication with generated keys",
-          "category": "fix"
-        },
-        {
-          "text": "Fixed SSH private key CRLF line ending issues",
-          "category": "fix"
-        },
-        {
-          "text": "SSH username now defaults to current OS user instead of root",
           "category": "fix"
         }
       ],
