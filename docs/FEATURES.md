@@ -1,7 +1,7 @@
 # Conduit Features
 
 > **Auto-maintained**: This document is updated whenever a new feature is implemented.
-> Last updated: 2026-05-03
+> Last updated: 2026-06-12
 
 ---
 
@@ -9,6 +9,7 @@
 
 ### SSH (Terminal Sessions)
 - Username/password and SSH key authentication
+- **Keyboard-interactive fallback**: Automatically answers keyboard-interactive prompts with the configured password, so servers that advertise only keyboard-interactive (e.g. VMware ESXi) connect successfully
 - **SSH auth method selection**: When a credential has both an SSH key and a password, choose which method to use per-credential or per-entry (default: SSH key)
 - **Global SSH auth default**: Configurable in Settings → Sessions → SSH — sets the default auth method when both key and password are present
 - Auto-detection of local SSH keys (~/.ssh/id_rsa, id_ed25519)
@@ -35,6 +36,7 @@
 - DNS resolution fallback: dual-strategy hostname resolver (OS `dns.lookup` → c-ares `dns.resolve4`) for corporate Windows environments where standard resolution fails
 - NLA (Network Level Authentication) support
 - Certificate verification bypass
+- Actionable connection error messages: failures surface a specific cause and suggested fix (e.g. credentials, NLA, host reachability) instead of a generic error
 - Shared folder redirection with per-drive read-only enforcement
 - Dynamic display resizing via RDPEDISP channel
 - High DPI / Retina display support (per-connection toggle, physical pixel resolution + DPI scale factors)
