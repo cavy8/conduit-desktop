@@ -458,7 +458,6 @@ function App() {
       handleNewAgent();
     };
     const handleReplayOnboarding = () => {
-      onboardingChecked.current = true;
       setShowOnboarding(true);
     };
     const handleWhatsNew = () => {
