@@ -5,8 +5,6 @@ import { useSessionStore } from "./sessionStore";
 import { useSettingsStore } from "./settingsStore";
 import { useVaultStore } from "./vaultStore";
 import { useSidebarStore } from "./sidebarStore";
-import { useAuthStore } from "./authStore";
-import { useTierStore } from "./tierStore";
 import { resolveRdpConfig, resolveWebConfig } from "../lib/resolveConfig";
 import { toast } from "../components/common/Toast";
 import { disposeTerminalEntry } from "../components/sessions/TerminalView";
@@ -312,15 +310,6 @@ export const useEntryStore = create<EntryState>((set, get) => ({
 
   createEntry: async (params) => {
     try {
-      // Tier enforcement: check entry limit for non-credential types
-      const { authMode } = useAuthStore.getState();
-      if (authMode !== 'local' && params.entry_type !== 'credential' && params.entry_type !== 'document') {
-        if (!useTierStore.getState().canCreateEntry()) {
-          toast.error("Entry limit reached — upgrade your plan to add more connections");
-          return null;
-        }
-      }
-
       const entry = await invoke<EntryMeta>("entry_create", params);
       set((state) => ({ entries: [...state.entries, entry] }));
       if (params.entry_type === "credential") {
@@ -338,14 +327,6 @@ export const useEntryStore = create<EntryState>((set, get) => ({
       const entry = get().entries.find((e) => e.id === id);
       if (!entry) return null;
 
-      const { authMode } = useAuthStore.getState();
-      if (authMode !== 'local' && entry.entry_type !== 'credential' && entry.entry_type !== 'document') {
-        if (!useTierStore.getState().canCreateEntry()) {
-          toast.error("Entry limit reached — upgrade your plan to add more connections");
-          return null;
-        }
-      }
-
       const newEntry = await invoke<EntryMeta>("entry_duplicate", { id });
       set((state) => ({ entries: [...state.entries, newEntry] }));
       if (newEntry.entry_type === "credential") {
@@ -354,12 +335,8 @@ export const useEntryStore = create<EntryState>((set, get) => ({
       return newEntry;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('TIER_LIMIT_REACHED')) {
-        toast.error("Entry limit reached — upgrade your plan to add more connections");
-      } else {
-        console.error("Failed to duplicate entry:", err);
-        toast.error("Failed to duplicate entry");
-      }
+      console.error("Failed to duplicate entry:", err);
+      toast.error("Failed to duplicate entry");
       return null;
     }
   },
@@ -599,12 +576,6 @@ export const useEntryStore = create<EntryState>((set, get) => ({
     const entry = get().entries.find((e) => e.id === id);
     if (!entry || entry.entry_type === "credential") return;
 
-    // Tier enforcement: prevent opening locked entries
-    if (useTierStore.getState().isEntryLocked(id)) {
-      toast.error("This entry is locked — upgrade your plan to access it");
-      return;
-    }
-
     // Prevent duplicate sessions from rapid double-clicks
     if (openingEntries.has(id)) return;
     openingEntries.add(id);
@@ -632,11 +603,6 @@ export const useEntryStore = create<EntryState>((set, get) => ({
   openEntryWithCredential: async (id, credentialId) => {
     const entry = get().entries.find((e) => e.id === id);
     if (!entry || entry.entry_type === "credential") return;
-
-    if (useTierStore.getState().isEntryLocked(id)) {
-      toast.error("This entry is locked — upgrade your plan to access it");
-      return;
-    }
 
     if (openingEntries.has(id)) return;
     openingEntries.add(id);

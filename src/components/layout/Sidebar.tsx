@@ -5,14 +5,10 @@ import {
   FolderPlusIcon,
   SearchIcon,
   ChevronDownIcon,
-  LoginIcon,
-  LogoutIcon,
   StarIcon,
   StarFilledIcon,
   UsersIcon,
   CloseIcon,
-  SparklesIcon,
-  ClockIcon,
   HomeIcon,
 } from "../../lib/icons";
 import EntryTree from "../entries/EntryTree";
@@ -26,7 +22,6 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { useLayoutStore, findLeaf, getAllLeaves } from "../../stores/layoutStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useTeamStore, type TeamVaultSummary } from "../../stores/teamStore";
-import { useTierStore } from "../../stores/tierStore";
 import { invoke } from "../../lib/electron";
 import CloudSyncIndicator from "../vault/CloudSyncIndicator";
 import TeamSyncIndicator from "../vault/TeamSyncIndicator";
@@ -34,7 +29,6 @@ import TeamSyncIndicator from "../vault/TeamSyncIndicator";
 export default function Sidebar() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
-  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [overlayClosing, setOverlayClosing] = useState(false);
   const [showVaultMenu, setShowVaultMenu] = useState(false);
   const vaultMenuRef = useRef<HTMLDivElement>(null);
@@ -47,21 +41,10 @@ export default function Sidebar() {
   const { isUnlocked, currentVaultPath } = useVaultStore();
   const { isExpanded, expandedWidth, expand, collapse, setExpandedWidth } =
     useSidebarStore();
-  const { user, authMode, signOut } = useAuthStore();
+  const { isTeamMember } = useAuthStore();
   const { teamVaults, myRole } = useTeamStore();
   const canCreateEntries = useTeamStore((s) => s.canCreate);
-  const { isTeamMember } = useAuthStore();
   const { vaultType, teamVaultId, isNetworkVault } = useVaultStore();
-  const { isTrialing, trialDaysRemaining, trialEligible, trialUrgency } = useTierStore();
-  const [trialPromoDismissed, setTrialPromoDismissed] = useState(() =>
-    localStorage.getItem("conduit:trial-promo-dismissed") === "true"
-  );
-  const showTrialPromo = trialEligible && !trialPromoDismissed && isUnlocked;
-
-  const dismissTrialPromo = useCallback(() => {
-    setTrialPromoDismissed(true);
-    localStorage.setItem("conduit:trial-promo-dismissed", "true");
-  }, []);
   const isTeamVaultActive = vaultType === "team";
   const [onboardingDismissed, setOnboardingDismissed] = useState(() =>
     localStorage.getItem("conduit:team-onboarding-dismissed") === "true"
@@ -413,53 +396,7 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Trial promotion / status */}
-      {showTrialPromo && (
-        <div className="mx-2 mb-2 p-3 rounded-lg bg-conduit-500/5 border border-conduit-500/20">
-          <div className="flex items-start gap-2">
-            <SparklesIcon size={16} className="text-conduit-400 mt-0.5 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-ink">Try Pro free for 30 days</p>
-              <button
-                onClick={() => invoke("auth_open_pricing")}
-                className="mt-2 px-3 py-1 text-xs bg-conduit-600 text-white rounded hover:bg-conduit-500 transition-colors"
-              >
-                Start Free Trial →
-              </button>
-            </div>
-            <button
-              onClick={dismissTrialPromo}
-              className="p-0.5 text-ink-faint hover:text-ink-muted flex-shrink-0"
-              title="Dismiss"
-            >
-              <CloseIcon size={12} />
-            </button>
-          </div>
-        </div>
-      )}
-      {isTrialing && trialDaysRemaining >= 0 && (
-        <div className={`mx-2 mb-2 px-3 py-2 rounded-lg border ${
-          trialUrgency === 'urgent' ? 'bg-red-500/5 border-red-500/20' :
-          trialUrgency === 'moderate' ? 'bg-amber-500/5 border-amber-500/20' :
-          'bg-conduit-500/5 border-conduit-500/20'
-        }`}>
-          <div className="flex items-center gap-2">
-            <ClockIcon size={14} className={
-              trialUrgency === 'urgent' ? 'text-red-400' :
-              trialUrgency === 'moderate' ? 'text-amber-400' :
-              'text-conduit-400'
-            } />
-            <span className={`text-xs font-medium ${
-              trialUrgency === 'urgent' ? 'text-red-400' :
-              trialUrgency === 'moderate' ? 'text-amber-400' :
-              'text-ink'
-            }`}>
-              Pro Trial — {trialDaysRemaining} {trialDaysRemaining === 1 ? 'day' : 'days'} left
-            </span>
-          </div>
-        </div>
-      )}
-      {/* Footer — home + settings + account */}
+      {/* Footer — home + settings */}
       <div className="border-t border-stroke-dim">
         <div className="flex items-center justify-between px-3 py-2">
           <div className="flex items-center gap-1">
@@ -488,58 +425,6 @@ export default function Sidebar() {
             </button>
           </div>
         </div>
-        {user ? (
-          <div className="flex items-center justify-between px-3 py-2 border-t border-stroke-dim">
-            <div className="flex items-center gap-1.5 min-w-0 mr-2">
-              <button
-                onClick={() => document.dispatchEvent(new CustomEvent("conduit:settings", { detail: { tab: "account" } }))}
-                className="text-xs text-ink-muted truncate hover:text-ink hover:underline text-left"
-                title="Account Settings"
-              >
-                {user.email}
-              </button>
-              {authMode === 'cached' && (
-                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-600/20 text-amber-400 rounded flex-shrink-0">
-                  offline
-                </span>
-              )}
-            </div>
-            {showSignOutConfirm ? (
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <button
-                  onClick={async () => { setShowSignOutConfirm(false); await signOut(); }}
-                  className="px-2 py-0.5 text-xs text-white bg-red-600 hover:bg-red-700 rounded"
-                >
-                  Confirm
-                </button>
-                <button
-                  onClick={() => setShowSignOutConfirm(false)}
-                  className="px-2 py-0.5 text-xs hover:bg-raised rounded text-ink-muted"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowSignOutConfirm(true)}
-                className="p-1 rounded hover:bg-raised text-ink-muted hover:text-red-400 flex-shrink-0"
-                title="Sign Out"
-              >
-                <LogoutIcon size={14} />
-              </button>
-            )}
-          </div>
-        ) : authMode === 'local' ? (
-          <div className="px-3 py-2 border-t border-stroke-dim">
-            <button
-              onClick={() => useAuthStore.getState().exitToSignIn()}
-              className="flex items-center gap-1.5 text-xs text-conduit-400 hover:text-conduit-300 transition-colors"
-            >
-              <LoginIcon size={12} />
-              Sign in to start a free Pro trial
-            </button>
-          </div>
-        ) : null}
       </div>
     </>
   );

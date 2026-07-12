@@ -19,13 +19,9 @@ interface AuthStoreState {
   isTeamMember: boolean;
 
   initialize: () => Promise<void>;
-  openLogin: () => void;
-  openSignup: () => void;
-  signOut: () => Promise<void>;
   loadProfile: () => Promise<void>;
   resendConfirmation: (email: string) => Promise<void>;
   enterLocalMode: () => void;
-  exitToSignIn: () => void;
   enterCachedMode: () => void;
   tryReauthenticate: () => Promise<boolean>;
   clearError: () => void;
@@ -48,56 +44,20 @@ export const useAuthStore = create<AuthStoreState>((set, get) => ({
   error: null,
 
   initialize: async () => {
-    try {
-      const state = await invoke<AuthState>('auth_initialize');
-      set({
-        user: state.user,
-        profile: state.profile,
-        isAuthenticated: state.isAuthenticated,
-        emailConfirmed: state.emailConfirmed,
-        authMode: state.authMode ?? (state.isAuthenticated ? 'authenticated' : null),
-        mfaStatus: state.mfaStatus ?? null,
-        mfaFactorId: state.mfaFactorId ?? null,
-        teamId: state.profile?.primary_team_id ?? null,
-        isTeamMember: state.profile?.is_team_member ?? false,
-        isInitializing: false,
-      });
-    } catch (err) {
-      console.error('[auth] Failed to initialize:', err);
-      set({ isInitializing: false });
-    }
-  },
-
-  openLogin: () => {
-    invoke('auth_open_login').catch((err) => {
-      console.error('[auth] Failed to open login:', err);
+    // Conduit is a local-first client.  Starting it must never depend on an
+    // account, a network connection, or a subscription lookup.
+    set({
+      user: null,
+      profile: null,
+      isAuthenticated: false,
+      emailConfirmed: false,
+      authMode: 'local',
+      mfaStatus: null,
+      mfaFactorId: null,
+      teamId: null,
+      isTeamMember: false,
+      isInitializing: false,
     });
-  },
-
-  openSignup: () => {
-    invoke('auth_open_signup').catch((err) => {
-      console.error('[auth] Failed to open signup:', err);
-    });
-  },
-
-  signOut: async () => {
-    try {
-      await invoke('auth_sign_out');
-      set({
-        user: null,
-        profile: null,
-        isAuthenticated: false,
-        emailConfirmed: false,
-        authMode: null,
-        mfaStatus: null,
-        mfaFactorId: null,
-        teamId: null,
-        isTeamMember: false,
-        error: null,
-      });
-    } catch (err) {
-      console.error('[auth] Failed to sign out:', err);
-    }
   },
 
   loadProfile: async () => {
@@ -155,14 +115,6 @@ export const useAuthStore = create<AuthStoreState>((set, get) => ({
       profile: null,
       teamId: null,
       isTeamMember: false,
-    });
-  },
-
-  exitToSignIn: () => {
-    set({
-      authMode: null,
-      isAuthenticated: false,
-      error: null,
     });
   },
 

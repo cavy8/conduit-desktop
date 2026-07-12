@@ -82,7 +82,6 @@ export default function PasswordHistoryDialog({ entryId, entryName, onClose }: P
   };
 
   const canDelete = vaultType === "personal" || myVaultRole === "admin";
-  const isFreeTier = limit > 0 && limit !== -1;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -203,19 +202,7 @@ export default function PasswordHistoryDialog({ entryId, entryName, onClose }: P
 
         {/* Footer */}
         <div className="border-t border-stroke px-4 py-3 flex items-center justify-between">
-          {isFreeTier ? (
-            <p className="text-[11px] text-ink-faint">
-              Free plan shows {limit} most recent changes.{" "}
-              <button
-                onClick={() => invoke("auth_open_pricing")}
-                className="text-conduit-400 hover:text-conduit-300 underline"
-              >
-                Upgrade for full history.
-              </button>
-            </p>
-          ) : (
-            <div />
-          )}
+          <div />
           <button
             onClick={onClose}
             className="px-4 py-1.5 text-sm bg-raised hover:bg-stroke rounded text-ink transition-colors"

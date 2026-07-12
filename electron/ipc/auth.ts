@@ -59,25 +59,12 @@ export function registerAuthHandlers(): void {
     return authState;
   });
 
-  ipcMain.handle('auth_open_login', () => {
-    const config = getEnvConfig();
-    shell.openExternal(`${config.websiteUrl}/login?desktop=true`);
-  });
-
-  ipcMain.handle('auth_open_signup', () => {
-    const config = getEnvConfig();
-    shell.openExternal(`${config.websiteUrl}/signup?desktop=true`);
-  });
-
-  ipcMain.handle('auth_open_account', () => {
-    const config = getEnvConfig();
-    shell.openExternal(`${config.websiteUrl}/account`);
-  });
-
-  ipcMain.handle('auth_open_pricing', () => {
-    const config = getEnvConfig();
-    shell.openExternal(`${config.websiteUrl}/pricing`);
-  });
+  // Legacy renderer channels remain registered as harmless no-ops so older
+  // windows cannot redirect this local-only client into account flows.
+  ipcMain.handle('auth_open_login', () => undefined);
+  ipcMain.handle('auth_open_signup', () => undefined);
+  ipcMain.handle('auth_open_account', () => undefined);
+  ipcMain.handle('auth_open_pricing', () => undefined);
 
   ipcMain.handle('auth_open_download', () => {
     const config = getEnvConfig();

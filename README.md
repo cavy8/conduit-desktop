@@ -30,7 +30,7 @@ Conduit does not ship its own AI. You bring your own: **Claude Code** (Anthropic
 
 - **MCP-native.** The MCP server is not an add-on — it is the product's first-class interface. Anything you can do in the UI, an agent can do through a tool call.
 - **Bring your own subscription, no proxy.** Claude Code and Codex authenticate directly with Anthropic and OpenAI using your own account. Conduit never sees your API keys, tokens, or prompts.
-- **Local-first.** Credentials live in a local AES-256 vault. Cloud sync is optional and zero-knowledge.
+- **Local-first.** Credentials live in a local AES-256 vault, with no Conduit account required.
 - **Open source client.** The Electron app, protocol handlers, FreeRDP helper, and MCP server are Apache 2.0. You can read exactly what AI agents can see and do.
 - **Multi-protocol.** SSH, RDP, VNC, web — one app, one vault, one MCP endpoint.
 
@@ -171,7 +171,7 @@ All credentials live in a local, AES-256 encrypted vault — not in plaintext co
 
 ---
 
-### Team vaults (Pro/Team, optional)
+### Team vaults (optional)
 
 Zero-knowledge credential sharing. The server stores ciphertext; keys never leave the client.
 

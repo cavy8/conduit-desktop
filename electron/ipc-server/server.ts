@@ -135,25 +135,14 @@ export async function handleRequest(
 ): Promise<IpcResponse> {
   const authState = state.authService?.getAuthState();
 
-  // GetTierInfo is unauthenticated so the MCP server can always learn its
-  // per-user quota (local-mode users have no profile but still get Free-tier
-  // treatment with a daily quota enforced in the MCP server).
+  // Retained for compatibility with existing MCP clients. Conduit is
+  // unmetered, so every local client receives unlimited tool access.
   if (request.type === 'GetTierInfo') {
-    const profile = authState?.profile;
-    const features = (profile?.tier?.features ?? {}) as Record<string, unknown>;
-    const mcpDailyQuota = typeof features.mcp_daily_quota === 'number' ? features.mcp_daily_quota : 50;
     return successResponse({
-      tier_name: profile?.tier?.name ?? 'free',
-      mcp_daily_quota: mcpDailyQuota,
-      authenticated: !!authState?.user,
+      tier_name: 'unlimited',
+      mcp_daily_quota: -1,
+      authenticated: false,
     });
-  }
-
-  // Defense-in-depth: block MCP tool calls for tiers without mcp_enabled.
-  // Free/Pro/Team all have mcp_enabled=true; local-mode users have no profile
-  // so we allow them through here and rely on the MCP-side daily quota to cap usage.
-  if (authState?.profile && !authState.profile.tier?.features?.mcp_enabled) {
-    return errorResponse('TIER_RESTRICTED', 'MCP access is not available on your plan');
   }
 
   try {

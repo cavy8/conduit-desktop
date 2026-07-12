@@ -32,9 +32,8 @@ import { useVaultStore } from "./stores/vaultStore";
 import { useSidebarStore } from "./stores/sidebarStore";
 import { useAuthStore } from "./stores/authStore";
 import { useAiStore } from "./stores/aiStore";
-import { initTierSubscriptions, useTierStore } from "./stores/tierStore";
+import { initTierSubscriptions } from "./stores/tierStore";
 import { useTeamStore } from "./stores/teamStore";
-import AuthScreen from "./components/auth/AuthScreen";
 import OnboardingWizard from "./components/onboarding/OnboardingWizard";
 import WhatsNewDialog from "./components/whats-new/WhatsNewDialog";
 import DeviceSetupDialog from "./components/vault/DeviceSetupDialog";
@@ -44,7 +43,7 @@ import DeviceAuthApprovalDialog from "./components/vault/DeviceAuthApprovalDialo
 import VaultSettingsDialog from "./components/vault/VaultSettingsDialog";
 import FeedbackDialog from "./components/feedback/FeedbackDialog";
 import type { TeamVaultSummary } from "./stores/teamStore";
-import { RobotIcon, WifiOffIcon } from "./lib/icons";
+import { RobotIcon } from "./lib/icons";
 
 /**
  * Notification controllers — manage toast + update state and push to overlay window.
@@ -122,14 +121,7 @@ function App() {
   const whatsNewChecked = useRef(false);
   const onboardingChecked = useRef(false);
   const { showVaultHub, autoConnectInProgress } = useVaultStore();
-  const { isAuthenticated, isInitializing, authMode, handleAuthStateChanged } = useAuthStore();
-  // cli_agents_enabled is read by ChatPanel via useAiStore directly
-  // Derive a stable key from profile tier/team status so the tier capabilities
-  // effect re-runs when the profile loads (fixes race condition for team members).
-  const profileTierKey = useAuthStore((s) => {
-    const p = s.profile;
-    return p ? `${p.is_team_member}-${p.tier_id}` : null;
-  });
+  const { isInitializing } = useAuthStore();
 
   // Initialize hooks
   useKeyboardShortcuts();
@@ -148,56 +140,6 @@ function App() {
   useEffect(() => {
     useAuthStore.getState().initialize();
     initTierSubscriptions();
-  }, []);
-
-  // Trial expiration warnings
-  useEffect(() => {
-    const unsub = useTierStore.subscribe((state, prevState) => {
-      if (!state.isTrialing || state.trialDaysRemaining < 0) return;
-      if (prevState.trialDaysRemaining === state.trialDaysRemaining) return;
-
-      const days = state.trialDaysRemaining;
-      const lastWarningKey = `conduit:trial-warning-${days <= 1 ? '1' : days <= 3 ? '3' : days <= 7 ? '7' : 'none'}`;
-
-      // Only show each warning level once per day
-      const lastShown = localStorage.getItem(lastWarningKey);
-      const today = new Date().toDateString();
-      if (lastShown === today) return;
-
-      if (days <= 1 && days > 0) {
-        toast.warning('Your trial ends tomorrow. Subscribe to keep Pro features.');
-        localStorage.setItem(lastWarningKey, today);
-      } else if (days <= 3) {
-        toast.warning(`Your trial ends in ${days} days. Subscribe to keep access.`);
-        localStorage.setItem(lastWarningKey, today);
-      } else if (days <= 7) {
-        toast.info(`Your trial ends in ${days} days.`);
-        localStorage.setItem(lastWarningKey, today);
-      }
-    });
-    return unsub;
-  }, []);
-
-  // Trial conversion / expiration detection
-  useEffect(() => {
-    const unsub = useTierStore.subscribe((state, prevState) => {
-      if (prevState.isTrialing && !state.isTrialing && prevState.trialDaysRemaining >= 0) {
-        const profile = useAuthStore.getState().profile;
-        const status = profile?.subscription_status;
-        if (status === 'active') {
-          toast.success('Your trial has ended and your Pro subscription is now active.', {
-            persistent: true,
-            actions: [{ label: 'Relaunch', onClick: () => invoke('app_relaunch'), variant: 'primary' }],
-          });
-        } else if (profile?.has_used_trial) {
-          toast.warning('Your trial has ended. Subscribe to keep Pro features.', {
-            persistent: true,
-            actions: [{ label: 'Relaunch', onClick: () => invoke('app_relaunch') }],
-          });
-        }
-      }
-    });
-    return unsub;
   }, []);
 
   // Check onboarding status for first-time authenticated users
@@ -245,35 +187,10 @@ function App() {
     return () => { unlisten(); };
   }, [handleAuthStateChanged]);
 
-  // Fetch tier capabilities, models, and auto-configure backend proxy based on auth mode
+  // All locally available capabilities are enabled without an account.
   useEffect(() => {
-    if (!authMode) return;
-    const store = useAiStore.getState();
-
-    if (authMode === 'local') {
-      store.setLocalModeTier();
-      return;
-    }
-
-    if (authMode === 'cached') {
-      store.loadCachedTier();
-      return;
-    }
-
-    // authMode === 'authenticated'
-    if (!isAuthenticated) return;
-    const setup = async () => {
-      try {
-        await store.fetchTierCapabilities();
-      } catch {
-        // Network may be temporarily down — fall back to cached tier
-        if (!useAiStore.getState().tierCapabilities) {
-          await store.loadCachedTier();
-        }
-      }
-    };
-    setup();
-  }, [isAuthenticated, authMode, profileTierKey]);
+    useAiStore.getState().setLocalModeTier();
+  }, []);
 
   // Initialize team features when authenticated
   useEffect(() => {
@@ -867,7 +784,6 @@ function App() {
       else if (a === "submit-feedback") setFeedbackType("feedback");
       else if (a === "check-for-updates") document.dispatchEvent(new CustomEvent("conduit:check-for-updates"));
       else if (a === "install-update") invoke("install_update").catch(console.error);
-      else if (a === "sign-out") useAuthStore.getState().signOut();
       else if (a === "close-all-sessions") {
         useSessionStore.getState().clearAll();
         useLayoutStore.getState().resetLayout();
@@ -939,11 +855,6 @@ function App() {
     );
   }
 
-  // Auth gate — allow local and cached modes to bypass sign-in
-  if (!isAuthenticated && authMode !== 'local' && authMode !== 'cached') {
-    return <AuthScreen />;
-  }
-
   // Onboarding gate — show wizard for first-time authenticated users
   if (showOnboarding) {
     return <OnboardingWizard onComplete={() => setShowOnboarding(false)} />;
@@ -965,19 +876,6 @@ function App() {
   if (showVaultHub) {
     return (
       <div className="flex flex-col h-screen bg-canvas text-ink">
-        {/* Offline banner */}
-        {authMode === 'cached' && (
-          <div className="flex items-center justify-center gap-2 px-4 py-1.5 bg-amber-600/20 border-b border-amber-600/30 text-amber-300 text-xs flex-shrink-0">
-            <WifiOffIcon size={14} />
-            <span>Working offline — using cached features</span>
-            <button
-              onClick={() => useAuthStore.getState().tryReauthenticate()}
-              className="ml-2 px-2 py-0.5 bg-amber-600/30 hover:bg-amber-600/50 rounded text-amber-200 transition-colors"
-            >
-              Reconnect
-            </button>
-          </div>
-        )}
         <VaultHub />
         {/* Overlay dialogs that can appear on top of hub */}
         {showUnlockDialog && (
@@ -1036,19 +934,6 @@ function App() {
     <div className="flex flex-col h-screen bg-canvas text-ink">
       {/* Theme accent bar */}
       <div className="h-[2px] bg-conduit-500 flex-shrink-0" />
-      {/* Offline banner for cached mode */}
-      {authMode === 'cached' && (
-        <div className="flex items-center justify-center gap-2 px-4 py-1.5 bg-amber-600/20 border-b border-amber-600/30 text-amber-300 text-xs flex-shrink-0">
-          <WifiOffIcon size={14} />
-          <span>Working offline — using cached features</span>
-          <button
-            onClick={() => useAuthStore.getState().tryReauthenticate()}
-            className="ml-2 px-2 py-0.5 bg-amber-600/30 hover:bg-amber-600/50 rounded text-amber-200 transition-colors"
-          >
-            Reconnect
-          </button>
-        </div>
-      )}
       {/* Sidebar — pure overlay, no inline space */}
       <Sidebar />
 

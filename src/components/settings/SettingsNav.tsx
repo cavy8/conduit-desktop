@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  KeyboardIcon, PaletteIcon, RobotIcon, FloppyIcon, UsersIcon, UserIcon,
+  KeyboardIcon, PaletteIcon, RobotIcon, FloppyIcon,
   TerminalIcon, DesktopIcon, EyeIcon, GlobeIcon, ChevronRightIcon, ChevronDownIcon,
   KeyIcon, FingerprintIcon, DeviceMobileIcon,
 } from "../../lib/icons";
@@ -33,8 +33,6 @@ const NAV_ITEMS: NavItem[] = [
   { kind: "item", id: "ai/agent", icon: RobotIcon, label: "AI" },
   { kind: "item", id: "backup", icon: FloppyIcon, label: "Backup" },
   { kind: "item", id: "mobile", icon: DeviceMobileIcon, label: "Mobile" },
-  { kind: "item", id: "team", icon: UsersIcon, label: "Team" },
-  { kind: "item", id: "account", icon: UserIcon, label: "Account" },
 ];
 
 interface SettingsNavProps {

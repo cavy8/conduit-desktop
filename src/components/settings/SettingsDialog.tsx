@@ -14,8 +14,6 @@ import AiTab from "./tabs/AiTab";
 import BackupTab from "./tabs/BackupTab";
 import MobileTab from "./tabs/MobileTab";
 import SecurityTab from "./tabs/SecurityTab";
-import TeamSettingsTab from "./TeamSettingsTab";
-import AccountTab from "./tabs/AccountTab";
 import type { Settings, SettingsTab } from "./SettingsHelpers";
 import { HARDCODED_RDP_DEFAULTS, HARDCODED_WEB_DEFAULTS, HARDCODED_TERMINAL_DEFAULTS, HARDCODED_SSH_DEFAULTS } from "./SettingsHelpers";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -162,10 +160,6 @@ export default function SettingsDialog({ onClose, initialTab }: SettingsDialogPr
         return <BackupTab />;
       case "mobile":
         return <MobileTab />;
-      case "team":
-        return <TeamSettingsTab />;
-      case "account":
-        return <AccountTab onClose={onClose} />;
       default:
         return null;
     }

@@ -1,9 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useEntryStore } from "../../stores/entryStore";
-import { useTierStore } from "../../stores/tierStore";
 import { useVaultStore } from "../../stores/vaultStore";
 import { useTeamStore } from "../../stores/teamStore";
-import { useAuthStore } from "../../stores/authStore";
 import { invoke } from "../../lib/electron";
 import { getEntryIcon, getEntryColor } from "./entryIcons";
 import ConfirmDialog from "../common/ConfirmDialog";
@@ -12,7 +10,6 @@ import { getTypeableActiveSession, typeIntoActiveSession, typeUsernameTabPasswor
 import { toast } from "../common/Toast";
 import { generateTotpCode } from "../../lib/totp";
 import { openDashboardForEntry } from "../../lib/openDashboard";
-import UpgradeBanner from "../upgrade/UpgradeBanner";
 import CredentialPicker from "../vault/CredentialPicker";
 import type { EntryType, EntryMeta, FolderData } from "../../types/entry";
 import {
@@ -105,10 +102,6 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
     getEntry,
   } = useEntryStore();
 
-  const lockedEntryIds = useTierStore((s) => s.lockedEntryIds);
-  const isEntryLocked = useTierStore((s) => s.isEntryLocked);
-  const maxConnections = useTierStore((s) => s.maxConnections);
-  const authMode = useAuthStore((s) => s.authMode);
   const vaultType = useVaultStore((s) => s.vaultType);
   const currentVaultPath = useVaultStore((s) => s.currentVaultPath);
   const teamVaultId = useVaultStore((s) => s.teamVaultId);
@@ -301,15 +294,11 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
 
   const handleDoubleClick = useCallback((node: TreeNode) => {
     if (node.kind === "entry" && node.entryType !== "credential") {
-      if (isEntryLocked(node.id)) {
-        toast.error("This entry is locked — upgrade your plan to access it");
-        return;
-      }
       // Double-click opens just this entry; clear multi-selection
       setSelectedEntry(node.id);
       openEntry(node.id);
     }
-  }, [openEntry, isEntryLocked, setSelectedEntry]);
+  }, [openEntry, setSelectedEntry]);
 
   const handleEdit = useCallback((nodeId: string) => {
     document.dispatchEvent(new CustomEvent("conduit:edit-entry", { detail: nodeId }));
@@ -528,25 +517,16 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
       const canEdit = role === "admin" || role === "editor";
       const isConnection = node.entryType !== "credential";
       const isCredential = node.entryType === "credential";
-      const locked = isEntryLocked(node.id);
-
       // For credential entries, fetch full entry to check for TOTP
       let hasTotp = false;
-      if (isCredential && !locked) {
+      if (isCredential) {
         try {
           const full = await getEntry(node.id);
           hasTotp = !!full?.totp_secret;
         } catch { /* ignore — just won't show OTP option */ }
       }
 
-      if (locked) {
-        // Locked entries: only upgrade prompt + delete (to free up slots)
-        items.push({ id: "upgrade", label: "Upgrade to Access", icon: "lock" });
-        items.push({ id: "sep1", label: "", type: "separator" });
-        if (role === "admin") {
-          items.push({ id: "delete", label: "Delete", variant: "danger", icon: "trash" });
-        }
-      } else {
+      {
         if (isConnection) {
           items.push({ id: "open", label: "Open Session", icon: "play" });
           const openWithChildren: PopupMenuItem[] = [
@@ -597,9 +577,6 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
     if (!selected) return;
 
     switch (selected) {
-      case "upgrade":
-        invoke('auth_open_pricing');
-        break;
       case "new_entry":
         document.dispatchEvent(new CustomEvent("conduit:new-entry", { detail: { folderId: node.id } }));
         break;
@@ -712,7 +689,7 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
         handleDelete(node);
         break;
     }
-  }, [entries, selectedEntryIds, setSelectedEntry, openEntry, openEntryWithCredential, startRename, handleDelete, handleEdit, handleCopyHost, handleCopyUsername, handleCopyPassword, handleToggleFavorite, duplicateEntry, isEntryLocked, vaultType, getEffectiveRole, canManagePerms, getEntry]);
+  }, [entries, selectedEntryIds, setSelectedEntry, openEntry, openEntryWithCredential, startRename, handleDelete, handleEdit, handleCopyHost, handleCopyUsername, handleCopyPassword, handleToggleFavorite, duplicateEntry, vaultType, getEffectiveRole, canManagePerms, getEntry]);
 
   // Set of favorite entry IDs for quick lookup
   const favoriteIds = useMemo(
@@ -883,7 +860,6 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
     const isExpanded = expandedFolders.has(node.id);
     const isSelected = selectedEntryIds.has(node.id);
     const isRenaming = renamingId === node.id;
-    const isLocked = !isFolder && lockedEntryIds.has(node.id);
     // Both folders and entries accept drops (entries become parents of nested entries).
     const isDragOver = dragOverFolderId === node.id;
     const iconType = isFolder ? "folder" : node.entryType!;
@@ -896,11 +872,9 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
           className={`flex items-center gap-1 px-2 py-1 cursor-pointer rounded text-sm whitespace-nowrap ${
             isDragOver
               ? "bg-conduit-600/30 ring-1 ring-conduit-500"
-              : isLocked
-                ? "opacity-60 text-ink-faint"
-                : isSelected
-                  ? "bg-conduit-600/20 text-conduit-400"
-                  : "hover:bg-raised/50 text-ink-secondary"
+              : isSelected
+                ? "bg-conduit-600/20 text-conduit-400"
+                : "hover:bg-raised/50 text-ink-secondary"
           }`}
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
           onClick={(e) => {
@@ -989,9 +963,6 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
           ) : (
             <span className="flex items-center gap-1">
               {node.name}
-              {isLocked && (
-                <LockIcon size={10} className="text-ink-faint flex-shrink-0" />
-              )}
               {isFolder && vaultType === "team" && (() => {
                 const effectiveRole = getEffectiveRole(node.id);
                 if (effectiveRole === "viewer") {
@@ -999,7 +970,7 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
                 }
                 return null;
               })()}
-              {!isFolder && !isLocked && favoriteIds.has(node.id) && (
+              {!isFolder && favoriteIds.has(node.id) && (
                 <StarFilledIcon size={10} className="text-yellow-400 flex-shrink-0" />
               )}
             </span>
@@ -1051,17 +1022,6 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
       {isFlatMode
         ? (tree as FolderGroup[]).map((group) => renderGroup(group))
         : (tree as TreeNode[]).map((node) => renderNode(node))}
-
-      {/* Upgrade banner when at connection limit */}
-      {maxConnections !== -1 && connectionCount >= maxConnections && authMode !== 'local' && (
-        <div className="mx-2 mt-2">
-          <UpgradeBanner
-            message={`Connection limit reached (${connectionCount}/${maxConnections})`}
-            ctaLabel="Upgrade to Pro"
-            onCta={() => invoke('auth_open_pricing')}
-          />
-        </div>
-      )}
 
       {/* Root drop zone: drop items here to move to root level */}
       {!isFlatMode && (

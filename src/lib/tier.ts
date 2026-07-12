@@ -18,17 +18,10 @@ export function canAccessFeature(
  * Free/local = 3 most recent, Pro/Teams = unlimited (-1).
  */
 export function getPasswordHistoryLimit(
-  profile: UserProfile | null,
-  authMode: string | null
+  _profile: UserProfile | null,
+  _authMode: string | null
 ): number {
-  if (!profile || authMode === 'local') return 3;
-  // Check explicit feature flag first
-  const limit = profile.tier?.features?.password_history_limit;
-  if (typeof limit === 'number') return limit;
-  // Pro and Teams tiers get unlimited even without the feature flag
-  const tierName = profile.tier?.name?.toLowerCase();
-  if (tierName === 'pro' || tierName === 'team' || tierName === 'teams') return -1;
-  return 3;
+  return -1;
 }
 
 /**

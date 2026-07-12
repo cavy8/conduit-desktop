@@ -36,8 +36,6 @@ export type SettingsTab =
   | "ai/agent"
   | "backup"
   | "mobile"
-  | "team"
-  | "account";
 
 export interface TabProps {
   settings: Settings;

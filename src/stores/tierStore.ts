@@ -1,9 +1,5 @@
 import { create } from 'zustand';
-import { useAuthStore } from './authStore';
 import { useEntryStore } from './entryStore';
-import { useSessionStore } from './sessionStore';
-import { canAccessFeature, getFeatureLimit, getTrialDaysRemaining } from '../lib/tier';
-import { toast } from '../components/common/Toast';
 
 interface TierStoreState {
   accessibleEntryIds: Set<string>;
@@ -40,9 +36,9 @@ export const useTierStore = create<TierStoreState>((set, get) => ({
 
   cliAgentsEnabled: true, // free tier runs Claude Code / Codex under the user's own subscription
   mcpEnabled: true, // free tier has MCP with daily quota
-  mcpDailyQuota: 50,
-  cloudSyncEnabled: false, // Team-only
-  sharedVaults: false, // Team-only
+  mcpDailyQuota: -1,
+  cloudSyncEnabled: true,
+  sharedVaults: true,
 
   isTrialing: false,
   trialDaysRemaining: -1,
@@ -50,118 +46,20 @@ export const useTierStore = create<TierStoreState>((set, get) => ({
   trialUrgency: 'none' as const,
 
   recompute: () => {
-    const { profile, authMode } = useAuthStore.getState();
     const { entries } = useEntryStore.getState();
-
-    // Local mode or no profile → unlimited connections, no AI/MCP/cloud features
-    if (authMode === 'local' || !profile) {
-      const allIds = new Set(
-        entries.filter((e) => e.entry_type !== 'credential' && e.entry_type !== 'document').map((e) => e.id)
-      );
-      previousLockedIds = new Set<string>();
-      set({
-        accessibleEntryIds: allIds,
-        lockedEntryIds: new Set<string>(),
-        maxConnections: -1,
-        cliAgentsEnabled: true,
-        mcpEnabled: true,
-        mcpDailyQuota: 50,
-        cloudSyncEnabled: false,
-        sharedVaults: false,
-        isTrialing: false,
-        trialDaysRemaining: -1,
-        trialEligible: false,
-        trialUrgency: 'none' as const,
-      });
-      return;
-    }
-
-    const maxConnections = getFeatureLimit(profile, 'max_connections');
-
-    // Filter to non-credential entries and sort by created_at ascending (oldest first)
-    const connectionEntries = entries
-      .filter((e) => e.entry_type !== 'credential' && e.entry_type !== 'document')
-      .sort((a, b) => a.created_at.localeCompare(b.created_at));
-
-    const accessibleEntryIds = new Set<string>();
-    const lockedEntryIds = new Set<string>();
-
-    if (maxConnections === -1) {
-      // Unlimited
-      for (const e of connectionEntries) {
-        accessibleEntryIds.add(e.id);
-      }
-    } else {
-      for (let i = 0; i < connectionEntries.length; i++) {
-        if (i < maxConnections) {
-          accessibleEntryIds.add(connectionEntries[i].id);
-        } else {
-          lockedEntryIds.add(connectionEntries[i].id);
-        }
-      }
-    }
-
-    // Derive feature flags
-    const cliAgentsEnabled = canAccessFeature(profile, 'cli_agents_enabled');
-    const mcpEnabled = canAccessFeature(profile, 'mcp_enabled');
-    const mcpDailyQuota = getFeatureLimit(profile, 'mcp_daily_quota') || 50;
-    const cloudSyncEnabled = canAccessFeature(profile, 'cloud_sync_enabled');
-    const sharedVaults = canAccessFeature(profile, 'shared_vaults');
-
-    // Trial state
-    const isTrialing = profile.subscription_status === 'trialing';
-    const trialDaysRemaining = getTrialDaysRemaining(profile.trial_ends_at);
-    const tierName = profile.tier?.name?.toLowerCase() || '';
-    const trialEligible = authMode === 'authenticated' &&
-      !profile.has_used_trial &&
-      !profile.is_team_member &&
-      !['pro', 'team'].includes(tierName) &&
-      !['active', 'trialing'].includes(profile.subscription_status || '');
-
-    let trialUrgency: 'none' | 'subtle' | 'moderate' | 'urgent' = 'none';
-    if (isTrialing && trialDaysRemaining >= 0) {
-      if (trialDaysRemaining <= 3) trialUrgency = 'urgent';
-      else if (trialDaysRemaining <= 7) trialUrgency = 'moderate';
-      else trialUrgency = 'subtle';
-    }
-
-    // Session cleanup: close sessions for newly locked entries
-    const newlyLocked = new Set<string>();
-    for (const id of lockedEntryIds) {
-      if (!previousLockedIds.has(id)) {
-        newlyLocked.add(id);
-      }
-    }
-
-    if (newlyLocked.size > 0) {
-      const sessionStore = useSessionStore.getState();
-      for (const session of sessionStore.sessions) {
-        if (session.entryId && newlyLocked.has(session.entryId)) {
-          sessionStore.closeSession(session.id).catch((err) => {
-            console.error(`[tier] Failed to close session ${session.id}:`, err);
-          });
-          toast.warning(`Session "${session.title}" disconnected due to plan change.`, {
-            actions: [{ label: 'Relaunch', onClick: () => window.electron?.invoke('app_relaunch') }],
-          });
-        }
-      }
-    }
-
-    previousLockedIds = new Set(lockedEntryIds);
-
     set({
-      accessibleEntryIds,
-      lockedEntryIds,
-      maxConnections,
-      cliAgentsEnabled,
-      mcpEnabled,
-      mcpDailyQuota,
-      cloudSyncEnabled,
-      sharedVaults,
-      isTrialing,
-      trialDaysRemaining,
-      trialEligible,
-      trialUrgency,
+      accessibleEntryIds: new Set(entries.map((entry) => entry.id)),
+      lockedEntryIds: new Set<string>(),
+      maxConnections: -1,
+      cliAgentsEnabled: true,
+      mcpEnabled: true,
+      mcpDailyQuota: -1,
+      cloudSyncEnabled: true,
+      sharedVaults: true,
+      isTrialing: false,
+      trialDaysRemaining: -1,
+      trialEligible: false,
+      trialUrgency: 'none',
     });
   },
 
@@ -188,12 +86,6 @@ export const useTierStore = create<TierStoreState>((set, get) => ({
 export function initTierSubscriptions(): void {
   if (subscriptionsInitialized) return;
   subscriptionsInitialized = true;
-
-  useAuthStore.subscribe((state, prevState) => {
-    if (state.profile !== prevState.profile || state.authMode !== prevState.authMode) {
-      useTierStore.getState().recompute();
-    }
-  });
 
   useEntryStore.subscribe((state, prevState) => {
     if (state.entries !== prevState.entries) {

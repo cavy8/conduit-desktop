@@ -15,9 +15,8 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import { ConduitClient, type TierInfo } from './ipc-client.js';
+import { ConduitClient } from './ipc-client.js';
 import { RateLimitManager, defaultRateLimits } from './rate-limiter.js';
-import { DailyQuotaManager } from './daily-quota.js';
 import { AuditLogger } from './audit.js';
 import { track } from './analytics.js';
 
@@ -288,31 +287,6 @@ async function main(): Promise<void> {
     );
   }
 
-  const dailyQuota = new DailyQuotaManager();
-
-  // Cached tier info (refetched periodically from the main app)
-  let cachedTier: TierInfo | null = null;
-  let tierFetchedAt = 0;
-  const TIER_CACHE_MS = 60_000; // 1 minute
-
-  async function getTier(): Promise<TierInfo> {
-    const now = Date.now();
-    if (cachedTier && now - tierFetchedAt < TIER_CACHE_MS) {
-      return cachedTier;
-    }
-    if (!client) {
-      return { tier_name: 'free', mcp_daily_quota: 50, authenticated: false };
-    }
-    try {
-      cachedTier = await client.getTierInfo();
-      tierFetchedAt = now;
-      return cachedTier;
-    } catch (err) {
-      process.stderr.write(`[mcp] getTierInfo failed: ${err instanceof Error ? err.message : String(err)}\n`);
-      return cachedTier ?? { tier_name: 'free', mcp_daily_quota: 50, authenticated: false };
-    }
-  }
-
   // Build tool registry
   const toolRegistry = buildToolRegistry();
 
@@ -344,31 +318,6 @@ async function main(): Promise<void> {
     if (!entry) {
       return {
         content: [{ type: 'text', text: JSON.stringify({ error: `Unknown tool: ${toolName}` }) }],
-        isError: true,
-      };
-    }
-
-    // Check daily quota (Free tier = 50/day, Pro/Team = unlimited).
-    const tier = await getTier();
-    const quotaResult = dailyQuota.check(tier.mcp_daily_quota);
-    if (!quotaResult.allowed) {
-      auditLogger.logRateLimited(toolName, 'mcp-client', toolArgs);
-      track('mcp.quota_hit', { tier: tier.tier_name, quota: tier.mcp_daily_quota });
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              error: 'Daily MCP quota exceeded',
-              reason: `You have used your daily MCP quota of ${tier.mcp_daily_quota} tool calls. `
-                + 'Upgrade to Pro for unlimited MCP tool calls.',
-              quota: tier.mcp_daily_quota,
-              used: quotaResult.count,
-              resetAt: quotaResult.resetAt,
-              upgradeUrl: 'https://conduitdesktop.com/pricing',
-            }),
-          },
-        ],
         isError: true,
       };
     }
@@ -416,15 +365,7 @@ async function main(): Promise<void> {
       auditLogger.logSuccess(toolName, 'mcp-client', toolArgs, durationMs);
       process.stderr.write(`[mcp] Tool ${toolName} completed (${durationMs}ms)\n`);
 
-      // Record quota usage on success. Failures don't count against the quota.
-      dailyQuota.record();
-
-      // Fire mcp.first_call on the first successful tool call this session.
-      // Session-scoped rather than persistent — a per-install "first tool call
-      // ever" counter would require extra state tracking and isn't worth it.
-      if (quotaResult.count === 0) {
-        track('mcp.first_call', { tier: tier.tier_name, tool: toolName });
-      }
+      track('mcp.tool_call', { tool: toolName });
 
       // If result contains a base64 image, return it as a native MCP image content block.
       // This lets Claude process the image via vision (~1-2K tokens) instead of tokenizing

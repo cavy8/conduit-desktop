@@ -173,11 +173,11 @@ export const useAiStore = create<AiState>((set, get) => ({
       tierCapabilities: {
         cli_agents_enabled: true,
         mcp_enabled: true,
-        mcp_daily_quota: 50,
-        cloud_sync_enabled: false,
-        shared_vaults: false,
-        tier_name: 'local',
-        tier_display_name: 'Local',
+        mcp_daily_quota: -1,
+        cloud_sync_enabled: true,
+        shared_vaults: true,
+        tier_name: 'unlimited',
+        tier_display_name: 'Unlimited',
         is_team_member: false,
       },
     });

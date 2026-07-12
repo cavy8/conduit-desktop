@@ -310,58 +310,10 @@ Conduit AI model. Users bring their own agent subscription.
 - Configurable terminal font size
 - MCP tool access: the agent connects to Conduit via the MCP server. Settings > AI includes an "MCP Server Setup" button that shows the exact `claude mcp add` / `codex mcp add` commands to register Conduit's MCP server in your project
 
-### Tier System
-- `cli_agents_enabled`: Claude Code / Codex access (all tiers — under the user's own Anthropic / OpenAI subscription)
-- `mcp_enabled`: MCP tool access (all tiers — Free is daily-quota capped at 50/day)
-- `mcp_daily_quota`: per-day MCP tool call cap (Free = 50, Pro/Team = -1 unlimited)
-- `cloud_sync_enabled`: vault cloud sync across devices (Pro + Team)
-- `shared_vaults`: multi-user shared vaults (Team only)
-- `is_team_member`: team membership flag (UI/team vault logic only)
-- Cached tier capabilities for offline mode
-
-### Tier Enforcement & Downgrade Handling
-- Entry creation limit enforcement (frontend + backend defense-in-depth)
-- Credentials excluded from entry limit (only connection types count)
-- Downgrade detection: periodic profile refresh (5-min interval + window focus)
-- Tier change notification toast on plan downgrades/upgrades with app relaunch button
-- Locked entry UX: lock icon + dimmed styling for entries beyond tier limit
-- Oldest entries (by created_at) remain accessible; newer entries get locked
-- Locked entries: restricted context menu (upgrade prompt + delete only)
-- Double-click on locked entry shows upgrade prompt
-- Active session cleanup: sessions on newly-locked entries auto-disconnect with notification
-- Deleting entries frees up slots (locked entries become accessible)
-- MCP gatekeeper: IPC socket server runs whenever `mcp_enabled` is true OR in local mode
-  - Server starts/stops dynamically on auth state changes (sign in, sign out, tier change)
-  - Socket file deleted on stop to prevent external connection attempts
-  - Defense-in-depth: tier check on all IPC requests
-- MCP daily quota (WS2a): rolling 24-hour counter enforced in the MCP server
-  - Free tier: 50 tool calls / day; Pro and Team: unlimited
-  - Storage: `{userData}/conduit[-dev]/mcp-quota.json`, atomic writes
-  - Structured quota-exceeded error with `upgradeUrl` and `resetAt`
-- Local mode: MCP enabled with Free-tier (50/day) quota
-- Team members: unlimited everything
-- **30-day free trial**: CC-required trial for Pro and Team plans
-  - One trial per user (Pro OR Team, not both); `has_used_trial` flag prevents re-trials
-  - Team trials capped at 3 seats (checkout, seat adjustment, invite acceptance)
-  - Sidebar: trial promotion card for eligible free users, countdown card for active trials
-  - Auth screen: trial highlight banner above sign-in card
-  - Settings Account tab: trial progress bar with days remaining and Subscribe Now CTA
-  - UpgradeGate: "Start Free Trial" CTA when trial-eligible
-  - Toast warnings at 7/3/1 days before trial ends
-  - Trial conversion detection: success toast when trial converts to paid, warning when expired
-  - Trial eligibility excludes team members and users already on Pro/Team tiers
-  - App relaunch button on all plan change toasts for full state refresh
-- **Contextual upgrade nudges**: Tasteful upgrade prompts at natural friction points
-  - AI chat panel: full-panel split-layout gate showing Pro features when `aiChatEnabled` is false
-  - Engine selector: "Pro" badge on Claude Code/Codex buttons; clicking opens pricing page
-  - Entry tree: inline banner when connection limit reached with upgrade CTA
-  - Context menu: "Upgrade to Access" on locked entries opens pricing page (replaces toast)
-  - Vault Hub: split-card Team Vaults upgrade section for signed-in non-team members
-  - Vault switcher: compact "Upgrade to Teams" row for non-team members
-  - Pro vault lock dialog: split layout with benefits column alongside lock info
-  - Settings AI tab: banner when AI features require Pro
-  - All prompts hidden in local mode and for team members
-  - Free → Pro CTAs open `/pricing`; Pro → Team CTAs open `/account`
+### Local access
+- Conduit launches directly into its local client: no Conduit account, trial, or subscription is required.
+- Connections, credentials, password history, AI-agent integration, and MCP access are unlimited.
+- Claude Code and Codex continue to authenticate directly with their respective providers using the user's own subscription.
 
 ---
 
@@ -383,8 +335,7 @@ Standalone MCP server process exposes Conduit tools to AI agents (Claude Code, e
 ### Safety & Controls
 - **Local-socket isolation**: MCP server speaks over a Unix socket (or named pipe on Windows) created with `0o600` permissions — only the user that owns the Conduit process can connect. Nothing is exposed over the network.
 - **Per-tool rate limiting**: Token-bucket limits sized per tool (e.g. screenshots 30/min, click/type 60/min, ssh_key_generate 6/min). Every registered tool has an explicit limit; nothing falls through to a generic default.
-- **Daily quota enforcement**: Free tier capped at 50 tool calls / day, enforced inside the MCP process. Pro and Team get unlimited. Quota state lives at `{userData}/conduit[-dev]/mcp-quota.json`.
-- **Tier-aware gatekeeper**: IPC server only accepts connections when `mcp_enabled` is true (or in local mode). Socket file is removed on stop; defense-in-depth tier check on every IPC request.
+- **Unlimited local MCP access**: No Conduit plan or daily tool-call quota is applied.
 - **Credential approval**: `credential_read` still requires explicit user approval with a `purpose` reason — this is the one tool that reveals raw secrets, so the approval dialog is preserved.
 - **Audit logging**: Every tool invocation (success, error, rate-limited, quota-exceeded) is logged with timing, args summary, and caller.
 - **Secret redaction**: `!!secret!!…!!secret!!` blocks in entry notes and document content are redacted to `********` before being returned by `entry_info` / `document_read`.
