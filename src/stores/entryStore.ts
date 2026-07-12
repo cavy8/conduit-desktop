@@ -334,7 +334,6 @@ export const useEntryStore = create<EntryState>((set, get) => ({
       }
       return newEntry;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
       console.error("Failed to duplicate entry:", err);
       toast.error("Failed to duplicate entry");
       return null;

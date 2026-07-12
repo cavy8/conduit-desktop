@@ -25,8 +25,6 @@ interface TierStoreState {
   canCreateEntry: () => boolean;
 }
 
-// Track previous locked set for session cleanup diffing
-let previousLockedIds = new Set<string>();
 let subscriptionsInitialized = false;
 
 export const useTierStore = create<TierStoreState>((set, get) => ({

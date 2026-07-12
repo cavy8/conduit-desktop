@@ -126,8 +126,6 @@ export default function EntryTree({ searchQuery, showFavoritesOnly }: EntryTreeP
   const [dragOverRoot, setDragOverRoot] = useState(false);
   const [credPickerEntryId, setCredPickerEntryId] = useState<string | null>(null);
 
-  const connectionCount = useMemo(() => entries.filter((e) => e.entry_type !== 'credential' && e.entry_type !== 'document').length, [entries]);
-
   // Whether we're in a flat display mode (no folder structure shown)
   const isFlatMode = !!(searchQuery || showFavoritesOnly);
 
