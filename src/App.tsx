@@ -118,8 +118,6 @@ function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [whatsNewVersion, setWhatsNewVersion] = useState<string | undefined>(undefined);
-  const whatsNewChecked = useRef(false);
-  const onboardingChecked = useRef(false);
   const { showVaultHub, autoConnectInProgress } = useVaultStore();
   const { isInitializing } = useAuthStore();
 
