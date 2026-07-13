@@ -203,6 +203,9 @@ export class AppState {
   static getInstance(): AppState {
     if (!AppState.instance) {
       AppState.instance = new AppState();
+      // The socket server resolves AppState while accepting requests, so it
+      // must start only after the singleton has been fully assigned.
+      AppState.instance.mcpGatekeeper.start();
     }
     return AppState.instance;
   }
